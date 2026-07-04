@@ -8,7 +8,7 @@ import { LoadingSpinner, ErrorState, EmptyState } from '../components/common/Sta
 import { apiService } from '../services/apiService';
 import { useToast } from '../contexts/ToastContext';
 import { useSync } from '../contexts/SyncContext';
-import { Eye, Pencil, Trash2, Plus, X, Search, CircleCheck as CheckCircle2, TriangleAlert as AlertTriangle, OctagonAlert as AlertOctagon, RefreshCw, Download, Package, Clock, Truck, DollarSign, History, User, CreditCard, Ban, RotateCcw, Check, Percent, CirclePlus as PlusCircle, ShoppingBag } from 'lucide-react';
+import { Eye, Pencil, Trash2, Plus, X, Search, CircleCheck as CheckCircle2, RefreshCw, Download, Package, Clock, DollarSign, History, Ban, RotateCcw, Check, Percent, CirclePlus as PlusCircle, ShoppingBag } from 'lucide-react';
 import {
   formatCurrency,
   formatNumber,
@@ -18,6 +18,7 @@ import { matchSearchTerm } from '../utils/normalizers';
 import { ORDER_STATUS_CONFIG, CONCILIATION_CONFIG } from '../config/constants';
 import { Order, OrderStatus, OrderItem, Product, AuditEntry } from '../types';
 import { useAuditContext } from '../hooks/useAuditContext';
+import { generateCSVBlob } from '../utils/exportHelpers';
 
 interface OrdersPageProps {
   initialSelectedId?: string | null;
@@ -292,7 +293,26 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ initialSelectedId }) => 
     carrierFilter !== 'todos';
 
   // Status Change Logic
+  const STATUS_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
+    aguardando: ['pago', 'cancelado'],
+    pago: ['faturado', 'cancelado'],
+    faturado: ['enviado', 'cancelado'],
+    enviado: ['entregue', 'devolvido'],
+    entregue: ['devolvido'],
+    devolvido: [],
+    cancelado: [],
+  };
+
+  const canTransition = (from: OrderStatus, to: OrderStatus): boolean => {
+    if (from === to) return false;
+    return STATUS_TRANSITIONS[from]?.includes(to) ?? false;
+  };
+
   const handleUpdateOrderStatus = async (order: Order, newStatus: OrderStatus) => {
+    if (!canTransition(order.status, newStatus)) {
+      toast.error(`Transição inválida: ${ORDER_STATUS_CONFIG[order.status]?.label ?? order.status} → ${ORDER_STATUS_CONFIG[newStatus]?.label ?? newStatus}`);
+      return;
+    }
     setUpdatingStatusId(order.id);
     try {
       const isEntregue = newStatus === 'entregue';
@@ -342,6 +362,11 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ initialSelectedId }) => 
     for (const id of selectedOrderIds) {
       const order = orders.find((o) => o.id === id);
       if (!order) continue;
+      if (!canTransition(order.status, newStatus)) {
+        falhas++;
+        erros.push(`${order.numero}: transição inválida (${ORDER_STATUS_CONFIG[order.status]?.label ?? order.status} → ${ORDER_STATUS_CONFIG[newStatus]?.label ?? newStatus})`);
+        continue;
+      }
       try {
         await apiService.updateOrder(order.id, {
           status: newStatus,
@@ -384,48 +409,32 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ initialSelectedId }) => 
       return;
     }
 
-    const headers = [
-      'Numero',
-      'Codigo_ERP',
-      'Marketplace',
-      'Cliente',
-      'Documento',
-      'Valor_Bruto',
-      'Frete',
-      'Comissao',
-      'Desconto',
-      'Status',
-      'Pagamento',
-      'Transportadora',
-      'Conciliacao',
-      'Data_Emissao',
-    ];
+    const mapped = dataset.map((o) => ({
+      Numero: o.numero,
+      Codigo_ERP: o.codigo_erp || '',
+      Marketplace: o.marketplace,
+      Cliente: o.cliente,
+      Documento: o.cliente_documento || '',
+      Valor_Bruto: Number(o.valor).toFixed(2),
+      Frete: Number(o.frete).toFixed(2),
+      Comissao: Number(o.comissao).toFixed(2),
+      Desconto: Number(o.desconto).toFixed(2),
+      Status: ORDER_STATUS_CONFIG[o.status]?.label ?? o.status,
+      Pagamento: o.pagamento,
+      Transportadora: o.transportadora,
+      Conciliacao: CONCILIATION_CONFIG[o.conciliacao]?.label ?? o.conciliacao,
+      Data_Emissao: o.data,
+    }));
 
-    const rows = dataset.map((o) => [
-      `"${o.numero}"`,
-      `"${o.codigo_erp || ''}"`,
-      `"${o.marketplace}"`,
-      `"${o.cliente.replace(/"/g, '""')}"`,
-      `"${o.cliente_documento || ''}"`,
-      Number(o.valor).toFixed(2),
-      Number(o.frete).toFixed(2),
-      Number(o.comissao).toFixed(2),
-      Number(o.desconto).toFixed(2),
-      `"${ORDER_STATUS_CONFIG[o.status]?.label ?? o.status}"`,
-      `"${o.pagamento}"`,
-      `"${o.transportadora}"`,
-      `"${CONCILIATION_CONFIG[o.conciliacao]?.label ?? o.conciliacao}"`,
-      `"${o.data}"`,
-    ]);
-
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
+    const { blob } = generateCSVBlob(mapped);
+    const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `pedidos_vendas_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.href = url;
+    link.download = `pedidos_vendas_${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
 
     toast.success(`${dataset.length} pedido(s) exportado(s) com sucesso!`);
   };  // Delete / Cancel Order Confirmation
@@ -577,7 +586,15 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ initialSelectedId }) => 
     }
 
     const items = newOrderForm.itens || [];
+    if (items.length === 0) {
+      setFormError('Adicione pelo menos um item ao pedido.');
+      return;
+    }
     const valorBruto = items.reduce((sum, item) => sum + Number(item.subtotal), 0);
+    if (valorBruto <= 0) {
+      setFormError('O valor total do pedido deve ser maior que zero.');
+      return;
+    }
 
     setSaving(true);
     setFormError(null);
@@ -588,7 +605,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ initialSelectedId }) => 
         marketplace: newOrderForm.marketplace || 'Mercado Livre',
         cliente: newOrderForm.cliente.trim(),
         cliente_documento: newOrderForm.cliente_documento?.trim() || '',
-        valor: valorBruto > 0 ? valorBruto : 100,
+        valor: valorBruto,
         frete: Number(newOrderForm.frete || 0),
         comissao: Number(newOrderForm.comissao || 0),
         desconto: Number(newOrderForm.desconto || 0),
@@ -871,7 +888,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ initialSelectedId }) => 
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="secondary" size="sm" onClick={loadData} icon={<RefreshCw className="h-3.5 w-3.5" />}>
+          <Button variant="secondary" size="sm" onClick={loadData} loading={loading} disabled={loading} icon={<RefreshCw className="h-3.5 w-3.5" />}>
             Sincronizar
           </Button>
           <Button
@@ -1178,12 +1195,14 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ initialSelectedId }) => 
               <div className="flex flex-wrap items-center gap-2">
                 {(['aguardando', 'pago', 'faturado', 'enviado', 'entregue'] as OrderStatus[]).map((st) => {
                   const isActive = viewOrder.status === st;
+                  const canMove = canTransition(viewOrder.status, st);
                   return (
                     <Button
                       key={st}
                       variant={isActive ? 'primary' : 'secondary'}
                       size="sm"
                       loading={updatingStatusId === viewOrder.id}
+                      disabled={!canMove && !isActive}
                       onClick={() => handleUpdateOrderStatus(viewOrder, st)}
                       className="text-xs"
                     >
@@ -1198,6 +1217,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ initialSelectedId }) => 
                     variant={viewOrder.status === 'cancelado' ? 'danger' : 'ghost'}
                     size="sm"
                     loading={updatingStatusId === viewOrder.id}
+                    disabled={!canTransition(viewOrder.status, 'cancelado') && viewOrder.status !== 'cancelado'}
                     onClick={() => handleUpdateOrderStatus(viewOrder, 'cancelado')}
                     className="text-xs text-danger-600 hover:bg-danger-50"
                     icon={<Ban className="h-3.5 w-3.5" />}
@@ -1208,6 +1228,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ initialSelectedId }) => 
                     variant={viewOrder.status === 'devolvido' ? 'danger' : 'ghost'}
                     size="sm"
                     loading={updatingStatusId === viewOrder.id}
+                    disabled={!canTransition(viewOrder.status, 'devolvido') && viewOrder.status !== 'devolvido'}
                     onClick={() => handleUpdateOrderStatus(viewOrder, 'devolvido')}
                     className="text-xs text-warning-600 hover:bg-warning-50"
                     icon={<RotateCcw className="h-3.5 w-3.5" />}

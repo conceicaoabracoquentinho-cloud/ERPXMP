@@ -784,8 +784,10 @@ export const AlertsPage: React.FC<AlertsPageProps> = ({ initialSelectedId }) => 
                 <Button
                   variant="success"
                   size="sm"
-                  onClick={() => {
-                    handleResolveSingle(viewAlert);
+                  loading={resolvingId === viewAlert.id}
+                  disabled={resolvingId === viewAlert.id}
+                  onClick={async () => {
+                    await handleResolveSingle(viewAlert);
                     setViewAlert(null);
                   }}
                   icon={<Check className="h-4 w-4" />}
@@ -801,7 +803,7 @@ export const AlertsPage: React.FC<AlertsPageProps> = ({ initialSelectedId }) => 
       <ConfirmModal
         open={resolveAllConfirmOpen}
         onClose={() => setResolveAllConfirmOpen(false)}
-        onConfirm={async () => { setResolveAllConfirmOpen(false); await handleResolveAll(); }}
+        onConfirm={async () => { await handleResolveAll(); setResolveAllConfirmOpen(false); }}
         title="Resolver Todos os Alertas"
         message={`Esta ação irá resolver TODOS os ${stats.totalActive} alertas ativos no sistema. Esta operação não pode ser desfeita. Deseja continuar?`}
         confirmLabel="Sim, Resolver Todos"

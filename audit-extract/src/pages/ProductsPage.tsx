@@ -8,7 +8,7 @@ import { LoadingSpinner, ErrorState, EmptyState } from '../components/common/Sta
 import { apiService } from '../services/apiService';
 import { useToast } from '../contexts/ToastContext';
 import { useSync } from '../contexts/SyncContext';
-import { Eye, CircleCheck as CheckCircle2, TriangleAlert as AlertTriangle, OctagonAlert as AlertOctagon, Pencil, Save, RefreshCw, Search, ListFilter as Filter, X, Package, Boxes, DollarSign, Power, Activity, History, Tag } from 'lucide-react';
+import { Eye, CircleCheck as CheckCircle2, TriangleAlert as AlertTriangle, OctagonAlert as AlertOctagon, Pencil, Save, RefreshCw, Search, ListFilter as Filter, X, Package, DollarSign, Power, History } from 'lucide-react';
 import {
   formatCurrency,
   formatNumber,
@@ -282,6 +282,9 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ initialSelectedId })
         navegador: auditCtx.navegador,
       });
       toast.success(product.ativo ? `Produto ${product.sku} desativado.` : `Produto ${product.sku} ativado.`);
+      if (viewProduct?.id === product.id) {
+        setViewProduct({ ...viewProduct, ativo: !product.ativo });
+      }
       notifyDataChanged();
     } catch {
       toast.error('Erro ao alterar status do produto.');
@@ -382,6 +385,9 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ initialSelectedId })
       });
 
       toast.success(`Produto ${editingProduct.sku} atualizado com sucesso!`);
+      if (viewProduct?.id === editingProduct.id) {
+        setViewProduct({ ...editingProduct });
+      }
       setEditingProduct(null);
       notifyDataChanged();
     } catch {
@@ -516,6 +522,8 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ initialSelectedId })
             variant="ghost"
             size="sm"
             onClick={() => handleToggleActiveProduct(p)}
+            loading={togglingId === p.id}
+            disabled={togglingId === p.id}
             title={p.ativo ? 'Desativar no catálogo' : 'Ativar no catálogo'}
             className={`p-1.5 ${p.ativo ? 'text-slate-400 hover:text-danger-600' : 'text-success-600'}`}
           >
@@ -978,7 +986,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ initialSelectedId })
                   step="0.01"
                   className="input-base text-xs"
                   value={editingProduct.preco}
-                  onChange={(e) => setEditingProduct({ ...editingProduct, preco: Number(e.target.value) })}
+                  onChange={(e) => setEditingProduct({ ...editingProduct, preco: e.target.value === '' ? 0 : Number(e.target.value) || 0 })}
                 />
               </div>
 
@@ -991,7 +999,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ initialSelectedId })
                   step="0.01"
                   className="input-base text-xs"
                   value={editingProduct.preco_marketplace ?? editingProduct.preco}
-                  onChange={(e) => setEditingProduct({ ...editingProduct, preco_marketplace: Number(e.target.value) })}
+                  onChange={(e) => setEditingProduct({ ...editingProduct, preco_marketplace: e.target.value === '' ? 0 : Number(e.target.value) || 0 })}
                 />
               </div>
             </div>
@@ -1005,7 +1013,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ initialSelectedId })
                   type="number"
                   className="input-base text-xs"
                   value={editingProduct.estoque}
-                  onChange={(e) => setEditingProduct({ ...editingProduct, estoque: Number(e.target.value) })}
+                  onChange={(e) => setEditingProduct({ ...editingProduct, estoque: e.target.value === '' ? 0 : Number(e.target.value) || 0 })}
                 />
               </div>
 
@@ -1017,7 +1025,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ initialSelectedId })
                   type="number"
                   className="input-base text-xs"
                   value={editingProduct.estoque_marketplace ?? editingProduct.estoque}
-                  onChange={(e) => setEditingProduct({ ...editingProduct, estoque_marketplace: Number(e.target.value) })}
+                  onChange={(e) => setEditingProduct({ ...editingProduct, estoque_marketplace: e.target.value === '' ? 0 : Number(e.target.value) || 0 })}
                 />
               </div>
             </div>
