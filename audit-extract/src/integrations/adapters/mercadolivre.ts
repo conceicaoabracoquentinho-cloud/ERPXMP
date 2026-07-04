@@ -10,27 +10,46 @@ export const MercadoLivreAdapter: IntegrationAdapter = {
 
   async testConnection(conn: Partial<Connection>) {
     const targetUrl = conn.url || 'https://api.mercadolibre.com';
-    const res = await IntegrationHttpClient.request(targetUrl, { timeoutMs: 5000, retries: 1 });
-    if (res.error) {
-      // Return realistic response time for simulation
-      return { ok: true, latencyMs: 145, message: 'Mercado Livre API respondendo com sucesso (Modo Adaptador Simulado).' };
+    const res = await IntegrationHttpClient.request(targetUrl, { timeoutMs: 10000, retries: 1 });
+    if (res.ok) {
+      return { ok: true, latencyMs: res.latencyMs, message: 'Conexão estabelecida com Mercado Livre API.' };
     }
-    return { ok: true, latencyMs: res.latencyMs || 120, message: 'Conexão estabelecida com Mercado Livre API.' };
+    return { ok: false, latencyMs: res.latencyMs, message: `Falha: ${res.error || 'endpoint inacessível'}` };
   },
 
   async sync(conn: Connection): Promise<IntegrationSyncResult> {
     const startTime = performance.now();
-    // Simulate real sync processing with adapter validation
-    await new Promise((r) => setTimeout(r, 600 + Math.floor(Math.random() * 400)));
+    const headers: Record<string, string> = {};
+    if (conn.token_sec) headers['Authorization'] = `Bearer ${conn.token_sec}`;
+
+    const res = await IntegrationHttpClient.request(conn.url, {
+      method: conn.metodo || 'GET',
+      timeoutMs: 30000,
+      retries: 2,
+      headers,
+    });
     const duration = Math.round(performance.now() - startTime);
 
+    if (!res.ok || !res.data) {
+      return {
+        success: false,
+        registrosRecebidos: 0,
+        registrosAlterados: 0,
+        erros: 1,
+        duracaoMs: duration,
+        mensagem: `Erro na sincronização com ${conn.nome}: ${res.error || 'sem resposta'}`,
+      };
+    }
+
+    const records = Array.isArray(res.data) ? res.data : res.data?.results || res.data?.data || [];
+    const count = Array.isArray(records) ? records.length : 0;
     return {
       success: true,
-      registrosRecebidos: Math.floor(Math.random() * 15) + 30,
-      registrosAlterados: Math.floor(Math.random() * 8) + 2,
+      registrosRecebidos: count,
+      registrosAlterados: count,
       erros: 0,
       duracaoMs: duration,
-      mensagem: `Sincronização com ${conn.nome} concluída com sucesso via MercadoLivreAdapter.`,
+      mensagem: `Sincronização com ${conn.nome} concluída: ${count} registros recebidos.`,
     };
   },
 };

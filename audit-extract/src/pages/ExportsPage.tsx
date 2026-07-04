@@ -28,6 +28,7 @@ import {
   generatePDFDocumentHTML,
   triggerFileDownload,
 } from '../utils/exportHelpers';
+import { useAuditContext } from '../hooks/useAuditContext';
 
 const DATASETS: {
   id: ExportDatasetId;
@@ -94,6 +95,7 @@ const FORMATS: {
 export const ExportsPage: React.FC = () => {
   const toast = useToast();
   const { refreshTrigger, notifyDataChanged } = useSync();
+  const auditCtx = useAuditContext();
 
   // Primary State
   const [loading, setLoading] = useState(true);
@@ -248,7 +250,7 @@ export const ExportsPage: React.FC = () => {
         dataset: name,
         dataset_id: targetDataset,
         formato: targetFormat,
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         registros: data.length,
         tamanho_bytes: sizeBytes,
         tempo_ms: durationMs,
@@ -258,20 +260,19 @@ export const ExportsPage: React.FC = () => {
 
       // Record in Audit Trail
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         acao: 'exportacao_dados',
         modulo: 'Exportações',
         registro: `${name} (${targetFormat.toUpperCase()}) — ${data.length} registros`,
         antes: null,
         depois: `Arquivo: ${filename} | Tamanho: ${(sizeBytes / 1024).toFixed(1)} KB`,
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
 
       toast.success(`Exportação de ${name} (${targetFormat.toUpperCase()}) realizada com sucesso!`);
       setObservacao('');
       notifyDataChanged();
-      await loadPageData();
     } catch {
       toast.error('Erro ao gerar arquivo de exportação. Tente novamente.');
     } finally {
@@ -335,14 +336,14 @@ export const ExportsPage: React.FC = () => {
       if (editingSchedule) {
         await apiService.updateExportSchedule(editingSchedule.id, scheduleFormData);
         await apiService.insertAudit({
-          usuario: 'Administrador',
+          usuario: auditCtx.usuario,
           acao: 'edicao_agendamento_exportacao',
           modulo: 'Exportações',
           registro: scheduleFormData.nome,
           antes: editingSchedule.nome,
           depois: `${scheduleFormData.frequencia} - ${scheduleFormData.email_destino}`,
-          ip: '189.120.44.12',
-          navegador: navigator.userAgent,
+          ip: auditCtx.ip,
+          navegador: auditCtx.navegador,
         });
         toast.success('Agendamento atualizado com sucesso!');
       } else {
@@ -353,20 +354,19 @@ export const ExportsPage: React.FC = () => {
           proxima_execucao: new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString(),
         });
         await apiService.insertAudit({
-          usuario: 'Administrador',
+          usuario: auditCtx.usuario,
           acao: 'criacao_agendamento_exportacao',
           modulo: 'Exportações',
           registro: scheduleFormData.nome,
           antes: null,
           depois: `${scheduleFormData.frequencia} às ${scheduleFormData.horario} -> ${scheduleFormData.email_destino}`,
-          ip: '189.120.44.12',
-          navegador: navigator.userAgent,
+          ip: auditCtx.ip,
+          navegador: auditCtx.navegador,
         });
         toast.success('Agendamento de exportação criado!');
       }
       setScheduleModalOpen(false);
       notifyDataChanged();
-      await loadPageData();
     } catch {
       toast.error('Erro ao salvar agendamento.');
     }
@@ -377,18 +377,17 @@ export const ExportsPage: React.FC = () => {
       const nextStatus = !sch.ativo;
       await apiService.updateExportSchedule(sch.id, { ativo: nextStatus });
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         acao: nextStatus ? 'reativacao_agendamento' : 'pausa_agendamento',
         modulo: 'Exportações',
         registro: sch.nome,
         antes: sch.ativo ? 'Ativo' : 'Pausado',
         depois: nextStatus ? 'Ativo' : 'Pausado',
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
       toast.success(`Agendamento "${sch.nome}" ${nextStatus ? 'reativado' : 'pausado'}.`);
       notifyDataChanged();
-      await loadPageData();
     } catch {
       toast.error('Erro ao alterar status do agendamento.');
     }
@@ -399,19 +398,18 @@ export const ExportsPage: React.FC = () => {
     try {
       await apiService.deleteExportSchedule(deleteScheduleModal.id);
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         acao: 'exclusao_agendamento',
         modulo: 'Exportações',
         registro: deleteScheduleModal.nome,
         antes: 'Ativo',
         depois: 'Excluído',
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
       toast.success('Agendamento excluído.');
       setDeleteScheduleModal(null);
       notifyDataChanged();
-      await loadPageData();
     } catch {
       toast.error('Erro ao excluir agendamento.');
     }
@@ -429,19 +427,18 @@ export const ExportsPage: React.FC = () => {
     try {
       await apiService.clearExportHistory();
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         acao: 'limpeza_historico_exportacoes',
         modulo: 'Exportações',
         registro: 'Histórico de exportações limpo pelo usuário',
         antes: `${exportHistory.length} registros`,
         depois: '0 registros',
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
       toast.success('Histórico de exportações limpo com sucesso.');
       setClearHistoryConfirmModal(false);
       notifyDataChanged();
-      await loadPageData();
     } catch {
       toast.error('Erro ao limpar histórico de exportações.');
     }

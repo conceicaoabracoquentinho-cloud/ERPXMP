@@ -11,7 +11,7 @@ export class IntegrationHttpClient {
   static async request<T = unknown>(
     url: string,
     options: HttpRequestOptions = {}
-  ): Promise<{ data: T | null; status: number; latencyMs: number; error?: string }> {
+  ): Promise<{ ok: boolean; data: T | null; status: number; latencyMs: number; error?: string }> {
     const {
       method = 'GET',
       headers = {},
@@ -56,6 +56,7 @@ export class IntegrationHttpClient {
             continue;
           }
           return {
+            ok: false,
             data: null,
             status: response.status,
             latencyMs,
@@ -74,6 +75,7 @@ export class IntegrationHttpClient {
         }
 
         return {
+          ok: true,
           data,
           status: response.status,
           latencyMs,

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ToastProvider } from './contexts/ToastContext';
 import { SyncProvider, useSync } from './contexts/SyncContext';
+import { AuthProvider } from './contexts/AuthContext';
 import { MainLayout } from './components/layout/MainLayout';
 
 import { DashboardPage } from './pages/DashboardPage';
@@ -87,11 +88,13 @@ function AppContent() {
 export default function App() {
   return (
     <ThemeProvider>
-      <ToastProvider>
-        <SyncProvider>
-          <AppContent />
-        </SyncProvider>
-      </ToastProvider>
+      <AuthProvider>
+        <ToastProvider>
+          <SyncProvider>
+            <AppContent />
+          </SyncProvider>
+        </ToastProvider>
+      </AuthProvider>
     </ThemeProvider>
   );
 }

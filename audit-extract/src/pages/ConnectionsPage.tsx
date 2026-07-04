@@ -21,6 +21,7 @@ import {
   CONNECTION_TYPE_LABELS,
 } from '../config/constants';
 import { Connection, SyncHistory, ConnectionType, AuthMethod, HttpMethod } from '../types';
+import { useAuditContext } from '../hooks/useAuditContext';
 
 const INITIAL_FORM: Omit<Connection, 'id' | 'empresa_id' | 'status' | 'registros' | 'tempo_resposta_ms' | 'ultima_sincronizacao'> = {
   nome: '',
@@ -40,6 +41,7 @@ interface ConnectionsPageProps {
 export const ConnectionsPage: React.FC<ConnectionsPageProps> = ({ initialSelectedId }) => {
   const toast = useToast();
   const { refreshTrigger, notifyDataChanged, triggerSyncAll, isSyncingAll } = useSync();
+  const auditCtx = useAuditContext();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -146,7 +148,6 @@ export const ConnectionsPage: React.FC<ConnectionsPageProps> = ({ initialSelecte
       } else {
         toast.error(`Falha ao sincronizar ${conn.nome}: ${report.mensagem}`);
       }
-      loadConnections();
       notifyDataChanged();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Erro na sincronização');
@@ -162,14 +163,14 @@ export const ConnectionsPage: React.FC<ConnectionsPageProps> = ({ initialSelecte
       if (res.ok) {
         toast.success(`Teste OK em ${conn.nome}! Latência: ${res.latencyMs}ms.`);
         await apiService.insertAudit({
-          usuario: 'Administrador',
+          usuario: auditCtx.usuario,
           acao: 'teste_conexao',
           modulo: 'Integrações',
           registro: conn.nome,
           antes: null,
           depois: `Conectividade OK (${res.latencyMs}ms)`,
-          ip: '189.120.44.12',
-          navegador: navigator.userAgent,
+          ip: auditCtx.ip,
+          navegador: auditCtx.navegador,
         });
       } else {
         toast.error(`Falha no teste de ${conn.nome}: ${res.message}`);
@@ -185,17 +186,16 @@ export const ConnectionsPage: React.FC<ConnectionsPageProps> = ({ initialSelecte
     try {
       await apiService.toggleConnection(conn.id, !conn.ativo);
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         acao: conn.ativo ? 'desativar_conexao' : 'ativar_conexao',
         modulo: 'Integrações',
         registro: conn.nome,
         antes: conn.ativo ? 'Ativo' : 'Inativo',
         depois: conn.ativo ? 'Inativo' : 'Ativo',
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
       toast.success(conn.ativo ? 'Conexão desativada com sucesso.' : 'Conexão ativada com sucesso.');
-      loadConnections();
       notifyDataChanged();
     } catch {
       toast.error('Erro ao alterar status da conexão.');
@@ -268,38 +268,39 @@ export const ConnectionsPage: React.FC<ConnectionsPageProps> = ({ initialSelecte
       if (credentialInput.trim()) {
         payload.token_sec = credentialInput.trim();
       } else if (!editingId && form.autenticacao !== 'Nenhuma') {
-        payload.token_sec = `sec_live_${Math.random().toString(36).slice(2, 10)}`;
+        setFormError('Credencial de autenticação é obrigatória para novas conexões com autenticação.');
+        setSubmitting(false);
+        return;
       }
 
       if (editingId) {
         await apiService.updateConnection(editingId, payload);
         await apiService.insertAudit({
-          usuario: 'Administrador',
+          usuario: auditCtx.usuario,
           acao: 'editar_conexao',
           modulo: 'Integrações',
           registro: form.nome,
           antes: null,
           depois: credentialInput.trim() ? 'Configuração e credenciais atualizadas' : 'Configuração atualizada (credenciais preservadas)',
-          ip: '189.120.44.12',
-          navegador: navigator.userAgent,
+          ip: auditCtx.ip,
+          navegador: auditCtx.navegador,
         });
         toast.success('Conexão atualizada com sucesso.');
       } else {
         await apiService.createConnection(payload as Omit<Connection, 'id' | 'empresa_id'>);
         await apiService.insertAudit({
-          usuario: 'Administrador',
+          usuario: auditCtx.usuario,
           acao: 'criar_conexao',
           modulo: 'Integrações',
           registro: form.nome,
           antes: null,
           depois: 'Nova conexão cadastrada com credencial criptografada',
-          ip: '189.120.44.12',
-          navegador: navigator.userAgent,
+          ip: auditCtx.ip,
+          navegador: auditCtx.navegador,
         });
         toast.success('Nova conexão cadastrada com sucesso.');
       }
       setIsModalOpen(false);
-      loadConnections();
       notifyDataChanged();
     } catch (err: unknown) {
       setFormError(err instanceof Error ? err.message : 'Erro ao salvar conexão.');
@@ -334,21 +335,20 @@ export const ConnectionsPage: React.FC<ConnectionsPageProps> = ({ initialSelecte
     try {
       await apiService.deleteConnection(conn.id);
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         acao: 'excluir_conexao',
         modulo: 'Integrações',
         registro: conn.nome,
         antes: conn.nome,
         depois: 'Conexão removida do sistema',
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
       toast.success(`Conexão "${conn.nome}" excluída com sucesso.`);
       setDeletingConn(null);
       if (viewConnection?.id === conn.id) {
         setViewConnection(null);
       }
-      loadConnections();
       notifyDataChanged();
     } catch {
       toast.error('Erro ao excluir conexão.');

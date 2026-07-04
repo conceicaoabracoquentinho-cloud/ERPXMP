@@ -4,6 +4,7 @@ import { StatCard } from '../components/common/StatCard';
 import { Button } from '../components/common/Button';
 import { Badge } from '../components/common/Badge';
 import { Modal } from '../components/common/Modal';
+import { ConfirmModal } from '../components/common/ConfirmModal';
 import { LoadingSpinner, ErrorState, EmptyState } from '../components/common/States';
 import { apiService } from '../services/apiService';
 import { useToast } from '../contexts/ToastContext';
@@ -15,6 +16,7 @@ import {
   formatDate,
 } from '../utils/formatters';
 import { SEVERITY_COLORS } from '../config/constants';
+import { useAuditContext } from '../hooks/useAuditContext';
 import { Alert, AlertSeverity, AlertStatus, AuditEntry } from '../types';
 
 const STATUS_LABELS: Record<AlertStatus, string> = {
@@ -32,6 +34,7 @@ interface AlertsPageProps {
 export const AlertsPage: React.FC<AlertsPageProps> = ({ initialSelectedId }) => {
   const toast = useToast();
   const { refreshTrigger, notifyDataChanged } = useSync();
+  const auditCtx = useAuditContext();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -54,6 +57,7 @@ export const AlertsPage: React.FC<AlertsPageProps> = ({ initialSelectedId }) => 
   const [resolvingAll, setResolvingAll] = useState(false);
   const [reconciling, setReconciling] = useState(false);
   const [viewAlert, setViewAlert] = useState<Alert | null>(null);
+  const [resolveAllConfirmOpen, setResolveAllConfirmOpen] = useState(false);
 
   const loadAlerts = useCallback(async () => {
     setLoading(true);
@@ -211,18 +215,17 @@ export const AlertsPage: React.FC<AlertsPageProps> = ({ initialSelectedId }) => 
     try {
       const res = await apiService.reconcileSystemAlerts();
       await apiService.insertAudit({
-        usuario: 'Administrador (Engine)',
+        usuario: auditCtx.usuario,
         acao: 'reconciliacao_alertas_sistema',
         modulo: 'Alertas',
         registro: `${res.totalDetected} divergências detectadas em tempo real`,
         antes: null,
         depois: 'Reconciliação Concluída',
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
       toast.success(`Reconciliação concluída! ${res.totalDetected} alertas/divergências ativos verificados.`);
       notifyDataChanged();
-      await loadAlerts();
     } catch {
       toast.error('Erro ao executar reconciliação de alertas.');
     } finally {
@@ -233,20 +236,19 @@ export const AlertsPage: React.FC<AlertsPageProps> = ({ initialSelectedId }) => 
   const handleResolveSingle = async (alert: Alert) => {
     setResolvingId(alert.id);
     try {
-      await apiService.resolveAlert(alert.id, 'Administrador');
+      await apiService.resolveAlert(alert.id, auditCtx.usuario);
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         acao: 'resolucao_alerta',
         modulo: 'Alertas',
         registro: alert.titulo,
         antes: alert.status,
         depois: 'resolvido',
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
       toast.success('Alerta resolvido com sucesso.');
       notifyDataChanged();
-      await loadAlerts();
     } catch {
       toast.error('Erro ao resolver alerta.');
     } finally {
@@ -259,21 +261,20 @@ export const AlertsPage: React.FC<AlertsPageProps> = ({ initialSelectedId }) => 
     setBatchResolving(true);
     try {
       const idsArray: string[] = Array.from(selectedIds);
-      await apiService.resolveAlertsBatch(idsArray, 'Administrador');
+      await apiService.resolveAlertsBatch(idsArray, auditCtx.usuario);
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         acao: 'resolucao_lote_alertas',
         modulo: 'Alertas',
         registro: `${idsArray.length} alertas resolvidos em lote`,
         antes: 'detectado',
         depois: 'resolvido',
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
       toast.success(`${idsArray.length} alertas resolvidos com sucesso.`);
       setSelectedIds(new Set());
       notifyDataChanged();
-      await loadAlerts();
     } catch {
       toast.error('Erro ao resolver alertas em lote.');
     } finally {
@@ -284,21 +285,20 @@ export const AlertsPage: React.FC<AlertsPageProps> = ({ initialSelectedId }) => 
   const handleResolveAll = async () => {
     setResolvingAll(true);
     try {
-      const count = await apiService.resolveAllAlerts('Administrador');
+      const count = await apiService.resolveAllAlerts(auditCtx.usuario);
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         acao: 'resolucao_total_alertas',
         modulo: 'Alertas',
         registro: `${count} alertas resolvidos (Limpeza Total)`,
         antes: 'Ativos',
         depois: 'Resolvidos',
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
       toast.success(`Todos os ${count} alertas ativos foram resolvidos.`);
       setSelectedIds(new Set());
       notifyDataChanged();
-      await loadAlerts();
     } catch {
       toast.error('Erro ao resolver todos os alertas.');
     } finally {
@@ -385,7 +385,7 @@ export const AlertsPage: React.FC<AlertsPageProps> = ({ initialSelectedId }) => 
             <Button
               variant="success"
               size="sm"
-              onClick={handleResolveAll}
+              onClick={() => setResolveAllConfirmOpen(true)}
               loading={resolvingAll}
               icon={<CheckCheck className="h-4 w-4" />}
             >
@@ -797,6 +797,16 @@ export const AlertsPage: React.FC<AlertsPageProps> = ({ initialSelectedId }) => 
           </div>
         )}
       </Modal>
+
+      <ConfirmModal
+        open={resolveAllConfirmOpen}
+        onClose={() => setResolveAllConfirmOpen(false)}
+        onConfirm={async () => { setResolveAllConfirmOpen(false); await handleResolveAll(); }}
+        title="Resolver Todos os Alertas"
+        message={`Esta ação irá resolver TODOS os ${stats.totalActive} alertas ativos no sistema. Esta operação não pode ser desfeita. Deseja continuar?`}
+        confirmLabel="Sim, Resolver Todos"
+        variant="danger"
+      />
     </div>
   );
 };

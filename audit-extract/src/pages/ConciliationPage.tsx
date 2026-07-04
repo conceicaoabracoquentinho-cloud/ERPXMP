@@ -17,6 +17,7 @@ import {
   formatDate,
 } from '../utils/formatters';
 import { CONCILIATION_CONFIG } from '../config/constants';
+import { useAuditContext } from '../hooks/useAuditContext';
 import { Product, Order, AuditEntry, ConciliationStatus } from '../types';
 
 interface ConciliationPageProps {
@@ -26,6 +27,7 @@ interface ConciliationPageProps {
 export const ConciliationPage: React.FC<ConciliationPageProps> = ({ initialSelectedId }) => {
   const toast = useToast();
   const { refreshTrigger, notifyDataChanged } = useSync();
+  const auditCtx = useAuditContext();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -274,20 +276,19 @@ export const ConciliationPage: React.FC<ConciliationPageProps> = ({ initialSelec
     try {
       await apiService.updateProductConciliation(product.id, 'conciliado');
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         acao: 'conciliacao_manual_produto',
         modulo: 'Conciliação',
         registro: product.sku,
         antes: `Status: ${product.conciliacao}; Preço MP: R$ ${product.preco_marketplace ?? '—'}; Estoque MP: ${product.estoque_marketplace ?? '—'}`,
         depois: `Status: conciliado; Preço MP: R$ ${product.preco}; Estoque MP: ${product.estoque}`,
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
       toast.success(`SKU ${product.sku} equalizado e conciliado com sucesso!`);
       if (viewingAnalysis?.entityId === product.id) {
         setViewingAnalysis(null);
       }
-      loadData();
       notifyDataChanged();
     } catch {
       toast.error('Erro ao conciliar produto.');
@@ -304,19 +305,18 @@ export const ConciliationPage: React.FC<ConciliationPageProps> = ({ initialSelec
       const directionLabel = direction === 'erp_to_mp' ? 'Marketplace atualizado com ERP' : 'ERP atualizado com Marketplace';
 
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         acao: 'equalizacao_direcional',
         modulo: 'Conciliação',
         registro: product.sku,
         antes: `Preço ERP: R$ ${product.preco}, MP: R$ ${product.preco_marketplace ?? '—'}`,
         depois: `Equalizado (${directionLabel}) -> Preço: R$ ${updated.preco}, Estoque: ${updated.estoque}`,
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
 
       toast.success(`Equalização concluída (${directionLabel}) para o SKU ${product.sku}.`);
       setViewingAnalysis(null);
-      loadData();
       notifyDataChanged();
     } catch {
       toast.error('Erro ao realizar equalização.');
@@ -331,17 +331,16 @@ export const ConciliationPage: React.FC<ConciliationPageProps> = ({ initialSelec
     try {
       await apiService.updateOrderConciliation(order.id, 'conciliado');
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         acao: 'conciliacao_manual_pedido',
         modulo: 'Conciliação',
         registro: order.numero,
         antes: order.conciliacao,
         depois: 'conciliado',
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
       toast.success(`Pedido ${order.numero} conciliado com sucesso.`);
-      loadData();
       notifyDataChanged();
     } catch {
       toast.error('Erro ao conciliar pedido.');
@@ -385,20 +384,19 @@ export const ConciliationPage: React.FC<ConciliationPageProps> = ({ initialSelec
 
     // Insert Audit for batch operation
     await apiService.insertAudit({
-      usuario: 'Administrador',
+      usuario: auditCtx.usuario,
       acao: 'conciliacao_lote_motor',
       modulo: 'Conciliação',
       registro: `${totalToProcess} itens (${divergentList.length} produtos, ${divergentOrderList.length} pedidos)`,
       antes: 'Divergências ativas',
       depois: 'Todos conciliados e equalizados',
-      ip: '189.120.44.12',
-      navegador: navigator.userAgent,
+      ip: auditCtx.ip,
+      navegador: auditCtx.navegador,
     });
 
     toast.success(`Conciliação em lote executada! ${totalToProcess} divergências foram equalizadas.`);
     setBatchProcessing(false);
     setBatchModalOpen(false);
-    loadData();
     notifyDataChanged();
   };
 

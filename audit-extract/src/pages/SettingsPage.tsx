@@ -10,6 +10,7 @@ import { useSync } from '../contexts/SyncContext';
 import { DEFAULT_COMPANY } from '../config/constants';
 import { apiService } from '../services/apiService';
 import { Company, SystemSettings, SystemUser, UserRole, UserStatus } from '../types';
+import { useAuditContext } from '../hooks/useAuditContext';
 import { Building2, Sun, Moon, Save, ShieldCheck, Bell, FileSliders as Sliders, Database, Download, Upload, RefreshCw, RotateCcw, UserPlus, Trash2, CreditCard as Edit3, CircleCheck as CheckCircle2, TriangleAlert as AlertTriangle, Send, Globe, Lock, Layers, Sparkles, Server, Zap } from 'lucide-react';
 
 interface SettingsPageProps {
@@ -20,6 +21,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ initialSelectedId })
   const { theme, toggleTheme } = useTheme();
   const toast = useToast();
   const { notifyDataChanged } = useSync();
+  const auditCtx = useAuditContext();
 
   const [loading, setLoading] = useState(true);
   const [savingCompany, setSavingCompany] = useState(false);
@@ -39,7 +41,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ initialSelectedId })
     notifyEmail: true,
     notifySlack: false,
     notifyCriticalAlerts: true,
-    slackWebhookUrl: 'https://hooks.slack.com/services/T000/B000/XXXX',
+    slackWebhookUrl: '',
     idioma: 'pt-BR',
   });
   const [users, setUsers] = useState<SystemUser[]>([]);
@@ -121,14 +123,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ initialSelectedId })
         email: company.email?.trim() || '',
       });
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         acao: 'atualizacao_dados_empresa',
         modulo: 'Configurações',
         registro: company.nome,
         antes: 'Dados Cadastrais Anteriores',
         depois: `Razão Social: ${company.razao_social} / Fantasia: ${company.nome} / CNPJ: ${company.cnpj}`,
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
       notifyDataChanged();
       toast.success('Dados da empresa salvos e atualizados em todo o sistema!');
@@ -173,14 +175,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ initialSelectedId })
         syncIntervalMinutes: interval,
       });
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         acao: 'atualizacao_regras_automacao',
         modulo: 'Configurações',
         registro: 'Regras de Automação & Retry',
         antes: 'Configuração Anterior',
         depois: `Tolerância: ${threshold}% / Retries: ${retries} / Timeout: ${timeout}s / Intervalo: ${interval}m`,
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
       notifyDataChanged();
       toast.success('Regras de automação e comunicação salvas com sucesso!');
@@ -197,14 +199,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ initialSelectedId })
     try {
       await apiService.updateSettings(settings);
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         acao: 'atualizacao_notificacoes',
         modulo: 'Configurações',
         registro: 'Canais de Alerta',
         antes: 'Configuração Anterior',
         depois: `Email: ${settings.notifyEmail ? 'Sim' : 'Não'} / Slack: ${settings.notifySlack ? 'Sim' : 'Não'} / Webhook: ${settings.slackWebhookUrl}`,
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
       notifyDataChanged();
       toast.success('Preferências de notificação e alertas salvas!');
@@ -219,14 +221,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ initialSelectedId })
   const handleTestNotification = async () => {
     try {
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         acao: 'teste_envio_notificacao',
         modulo: 'Configurações',
         registro: settings.slackWebhookUrl || 'Canais Internos',
         antes: null,
         depois: 'Notificação de Teste Disparada',
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
       toast.success('Notificação de teste enviada com sucesso para os canais configurados!');
     } catch {
@@ -253,14 +255,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ initialSelectedId })
       URL.revokeObjectURL(url);
 
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         acao: 'execucao_backup_sistema',
         modulo: 'Configurações',
         registro: `api2sheets-backup-${dateStr}.json`,
         antes: null,
         depois: 'Download de Backup Completo Gerado',
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
 
       toast.success('Backup completo do sistema gerado e baixado com sucesso!');
@@ -284,17 +286,16 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ initialSelectedId })
 
         const result = await apiService.restoreFullBackup(parsed);
         await apiService.insertAudit({
-          usuario: 'Administrador',
+          usuario: auditCtx.usuario,
           acao: 'restauracao_backup_sistema',
           modulo: 'Configurações',
           registro: file.name,
           antes: 'Base de Dados Anteriores',
           depois: `Restaurados ${result.recordsRestored} registros`,
-          ip: '189.120.44.12',
-          navegador: navigator.userAgent,
+          ip: auditCtx.ip,
+          navegador: auditCtx.navegador,
         });
 
-        await loadSettingsData();
         notifyDataChanged();
         setRestoreBackupModalOpen(false);
         toast.success(`Sistema restaurado com sucesso! ${result.recordsRestored} registros recarregados.`);
@@ -325,14 +326,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ initialSelectedId })
       URL.revokeObjectURL(url);
 
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         acao: 'exportacao_configuracoes_json',
         modulo: 'Configurações',
         registro: 'configuracoes-api2sheets.json',
         antes: null,
         depois: 'Exportação de preferências',
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
 
       toast.success('Arquivo de configurações exportado com sucesso!');
@@ -360,17 +361,16 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ initialSelectedId })
         }
 
         await apiService.insertAudit({
-          usuario: 'Administrador',
+          usuario: auditCtx.usuario,
           acao: 'importacao_configuracoes_json',
           modulo: 'Configurações',
           registro: file.name,
           antes: 'Preferências Anteriores',
           depois: 'Preferências Importadas do Arquivo',
-          ip: '189.120.44.12',
-          navegador: navigator.userAgent,
+          ip: auditCtx.ip,
+          navegador: auditCtx.navegador,
         });
 
-        await loadSettingsData();
         notifyDataChanged();
         toast.success('Preferências importadas e aplicadas com sucesso!');
       } catch {
@@ -386,17 +386,16 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ initialSelectedId })
     try {
       await apiService.resetToDefaults();
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         acao: 'reset_padroes_sistema',
         modulo: 'Configurações',
         registro: 'Padrões de Fábrica',
         antes: 'Configurações Personalizadas',
         depois: 'Configurações Redefinidas para os Padrões',
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
 
-      await loadSettingsData();
       notifyDataChanged();
       setResetConfirmModalOpen(false);
       toast.success('Sistema redefinido para os padrões de fábrica com sucesso!');
@@ -410,14 +409,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ initialSelectedId })
     try {
       await apiService.clearCache();
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         acao: 'limpeza_cache_temporario',
         modulo: 'Configurações',
         registro: 'Memória do Navegador',
         antes: 'Cache Ativo',
         depois: 'Cache e Sessões Limpas',
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
 
       toast.success('Cache do navegador e memória temporária limpos com sucesso!');
@@ -438,14 +437,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ initialSelectedId })
       setDbResultModalOpen(true);
 
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         acao: 'teste_conexao_banco',
         modulo: 'Configurações',
         registro: 'Cloud SQL / Supabase',
         antes: null,
         depois: `Status: ${result.ok ? 'OK' : 'Erro'} / Latência: ${result.latencyMs}ms`,
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
     } catch {
       toast.error('Falha ao testar conectividade com o banco de dados.');
@@ -471,14 +470,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ initialSelectedId })
       });
 
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         acao: 'criacao_usuario_rbac',
         modulo: 'Configurações',
         registro: created.nome,
         antes: null,
         depois: `Novo Usuário: ${created.email} (${created.papel})`,
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
 
       const updated = await apiService.getUsers();
@@ -497,14 +496,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ initialSelectedId })
     try {
       await apiService.updateUser(user.id, { status: nextStatus });
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         acao: 'alteracao_status_usuario',
         modulo: 'Configurações',
         registro: user.nome,
         antes: user.status,
         depois: nextStatus,
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
 
       const updated = await apiService.getUsers();
@@ -519,14 +518,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ initialSelectedId })
     try {
       await apiService.updateUser(userId, { papel: newRole });
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         acao: 'alteracao_papel_usuario',
         modulo: 'Configurações',
         registro: selectedUser?.nome || 'Usuário',
         antes: selectedUser?.papel || null,
         depois: newRole,
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
 
       const updated = await apiService.getUsers();
@@ -545,14 +544,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ initialSelectedId })
     try {
       await apiService.deleteUser(user.id);
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         acao: 'exclusao_usuario_rbac',
         modulo: 'Configurações',
         registro: user.nome,
         antes: `${user.email} (${user.papel})`,
         depois: 'Acesso Removido',
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
 
       const updated = await apiService.getUsers();

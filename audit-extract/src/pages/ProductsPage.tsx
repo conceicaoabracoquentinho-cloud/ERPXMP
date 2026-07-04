@@ -17,6 +17,7 @@ import {
 import { matchSearchTerm } from '../utils/normalizers';
 import { CONCILIATION_CONFIG } from '../config/constants';
 import { Product, AuditEntry } from '../types';
+import { useAuditContext } from '../hooks/useAuditContext';
 
 interface ProductsPageProps {
   initialSelectedId?: string | null;
@@ -25,6 +26,7 @@ interface ProductsPageProps {
 export const ProductsPage: React.FC<ProductsPageProps> = ({ initialSelectedId }) => {
   const toast = useToast();
   const { refreshTrigger, notifyDataChanged } = useSync();
+  const auditCtx = useAuditContext();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -234,17 +236,16 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ initialSelectedId })
         conciliacao: 'conciliado',
       });
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         acao: 'equalizacao_produto',
         modulo: 'Produtos',
         registro: product.sku,
         antes: `Divergência: MP R$ ${product.preco_marketplace ?? '—'} / ${product.estoque_marketplace ?? '—'} un`,
         depois: `Conciliado: R$ ${product.preco} / ${product.estoque} un`,
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
       toast.success(`Anúncio ${product.sku} equalizado com sucesso no Marketplace!`);
-      await loadData();
       notifyDataChanged();
       if (viewProduct?.id === product.id) {
         setViewProduct((prev) =>
@@ -271,17 +272,16 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ initialSelectedId })
     try {
       await apiService.updateProduct(product.id, { ativo: !product.ativo });
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         acao: product.ativo ? 'desativar_produto' : 'ativar_produto',
         modulo: 'Produtos',
         registro: product.sku,
         antes: product.ativo ? 'Ativo' : 'Inativo',
         depois: product.ativo ? 'Inativo' : 'Ativo',
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
       toast.success(product.ativo ? `Produto ${product.sku} desativado.` : `Produto ${product.sku} ativado.`);
-      await loadData();
       notifyDataChanged();
     } catch {
       toast.error('Erro ao alterar status do produto.');
@@ -371,19 +371,18 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ initialSelectedId })
       });
 
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         acao: 'edicao_produto',
         modulo: 'Produtos',
         registro: editingProduct.sku,
         antes: 'Dados Anteriores',
         depois: `Preço ERP: R$ ${precoNumber} | Preço MP: R$ ${precoMPNumber} | Estoque ERP: ${estoqueNumber} | Estoque MP: ${estoqueMPNumber}`,
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
 
       toast.success(`Produto ${editingProduct.sku} atualizado com sucesso!`);
       setEditingProduct(null);
-      await loadData();
       notifyDataChanged();
     } catch {
       toast.error('Erro ao salvar alterações do produto.');

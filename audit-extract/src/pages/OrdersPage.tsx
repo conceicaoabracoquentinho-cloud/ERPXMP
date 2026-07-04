@@ -17,6 +17,7 @@ import {
 import { matchSearchTerm } from '../utils/normalizers';
 import { ORDER_STATUS_CONFIG, CONCILIATION_CONFIG } from '../config/constants';
 import { Order, OrderStatus, OrderItem, Product, AuditEntry } from '../types';
+import { useAuditContext } from '../hooks/useAuditContext';
 
 interface OrdersPageProps {
   initialSelectedId?: string | null;
@@ -35,6 +36,7 @@ const ALL_ORDER_STATUSES: OrderStatus[] = [
 export const OrdersPage: React.FC<OrdersPageProps> = ({ initialSelectedId }) => {
   const toast = useToast();
   const { refreshTrigger, notifyDataChanged } = useSync();
+  const auditCtx = useAuditContext();
 
   // Primary Async States
   const [loading, setLoading] = useState(true);
@@ -302,21 +304,20 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ initialSelectedId }) => 
       });
 
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         acao: 'alteracao_status_pedido',
         modulo: 'Pedidos',
         registro: order.numero,
         antes: `Status: ${ORDER_STATUS_CONFIG[order.status]?.label ?? order.status}`,
         depois: `Status: ${ORDER_STATUS_CONFIG[newStatus]?.label ?? newStatus}`,
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
 
       toast.success(
         `Pedido ${order.numero} alterado para "${ORDER_STATUS_CONFIG[newStatus]?.label ?? newStatus}"!`
       );
 
-      await loadData();
       notifyDataChanged();
 
       if (viewOrder?.id === order.id) {
@@ -344,14 +345,14 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ initialSelectedId }) => 
             conciliacao: newStatus === 'entregue' ? 'conciliado' : order.conciliacao,
           });
           await apiService.insertAudit({
-            usuario: 'Administrador',
+            usuario: auditCtx.usuario,
             acao: 'alteracao_status_lote',
             modulo: 'Pedidos',
             registro: order.numero,
             antes: order.status,
             depois: newStatus,
-            ip: '189.120.44.12',
-            navegador: navigator.userAgent,
+            ip: auditCtx.ip,
+            navegador: auditCtx.navegador,
           });
         }
       }
@@ -359,7 +360,6 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ initialSelectedId }) => 
         `${selectedOrderIds.length} pedido(s) alterado(s) para "${ORDER_STATUS_CONFIG[newStatus]?.label ?? newStatus}"!`
       );
       setSelectedOrderIds([]);
-      await loadData();
       notifyDataChanged();
     } catch {
       toast.error('Erro ao processar alteração em lote.');
@@ -428,20 +428,19 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ initialSelectedId }) => 
       await apiService.deleteOrder(orderId);
       if (target) {
         await apiService.insertAudit({
-          usuario: 'Administrador',
+          usuario: auditCtx.usuario,
           acao: 'exclusao_pedido',
           modulo: 'Pedidos',
           registro: target.numero,
           antes: `Valor R$ ${target.valor} | Status: ${target.status}`,
           depois: 'Registro Excluído',
-          ip: '189.120.44.12',
-          navegador: navigator.userAgent,
+          ip: auditCtx.ip,
+          navegador: auditCtx.navegador,
         });
       }
       toast.success('Pedido removido com sucesso!');
       setDeleteConfirmId(null);
       if (viewOrder?.id === orderId) setViewOrder(null);
-      await loadData();
       notifyDataChanged();
     } catch {
       toast.error('Erro ao excluir pedido.');
@@ -502,19 +501,18 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ initialSelectedId }) => 
       });
 
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         acao: 'edicao_pedido',
         modulo: 'Pedidos',
         registro: editingOrder.numero,
         antes: 'Dados anteriores',
         depois: `Valor: R$ ${recalculatedValor} | Status: ${editingOrder.status} | Cliente: ${editingOrder.cliente}`,
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
 
       toast.success(`Pedido ${editingOrder.numero} atualizado com sucesso!`);
       setEditingOrder(null);
-      await loadData();
       notifyDataChanged();
     } catch {
       toast.error('Erro ao salvar alterações do pedido.');
@@ -596,19 +594,18 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ initialSelectedId }) => 
       });
 
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: auditCtx.usuario,
         acao: 'criacao_pedido',
         modulo: 'Pedidos',
         registro: created.numero,
         antes: 'Nenhum',
         depois: `Novo Pedido R$ ${created.valor} | Cliente: ${created.cliente}`,
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
 
       toast.success(`Pedido ${created.numero} criado com sucesso!`);
       setIsCreating(false);
-      await loadData();
       notifyDataChanged();
     } catch {
       toast.error('Erro ao criar novo pedido.');

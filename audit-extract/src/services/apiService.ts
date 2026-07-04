@@ -1,5 +1,6 @@
 import { supabase } from '../config/supabase';
 import { DEFAULT_COMPANY } from '../config/constants';
+import { IntegrationHttpClient } from '../integrations/base/httpClient';
 import {
   Company,
   Connection,
@@ -27,7 +28,7 @@ const DEFAULT_SETTINGS: SystemSettings = {
   notifyEmail: true,
   notifySlack: false,
   notifyCriticalAlerts: true,
-  slackWebhookUrl: 'https://hooks.slack.com/services/T000/B000/XXXX',
+  slackWebhookUrl: '',
   idioma: 'pt-BR',
 };
 
@@ -809,8 +810,8 @@ class MemoryDataStore {
       registro: 'TechCommerce Brasil',
       antes: null,
       depois: 'Módulos operacionais inicializados com sucesso',
-      ip: '189.120.44.12',
-      navegador: 'Chrome 122.0 / Linux',
+      ip: null,
+      navegador: 'Sistema',
       criado_em: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
     },
   ];
@@ -838,7 +839,7 @@ class MemoryDataStore {
       dataset: 'Catálogo de Produtos',
       dataset_id: 'products',
       formato: 'csv',
-      usuario: 'Administrador',
+      usuario: 'Sistema',
       registros: 5,
       tamanho_bytes: 1420,
       tempo_ms: 85,
@@ -852,7 +853,7 @@ class MemoryDataStore {
       dataset: 'Vendas e Pedidos',
       dataset_id: 'orders',
       formato: 'xlsx',
-      usuario: 'Administrador',
+      usuario: 'Sistema',
       registros: 5,
       tamanho_bytes: 3850,
       tempo_ms: 140,
@@ -912,79 +913,63 @@ const memoryStore = new MemoryDataStore();
 
 export const apiService = {
   async getCompany(): Promise<Company> {
-    try {
-      const { data, error } = await supabase.from('companies').select('*').eq('id', TENANT_ID).maybeSingle();
-      if (!error && data) return data as Company;
-    } catch {
-      // fallback
-    }
+    const { data, error } = await supabase.from('companies').select('*').eq('id', TENANT_ID).maybeSingle();
+    if (error) throw new Error(`Erro ao carregar empresa: ${error.message}`);
+    if (data) return data as Company;
     return memoryStore.company;
   },
 
   async getConnections(): Promise<Connection[]> {
-    try {
-      const { data, error } = await supabase.from('connections').select('*').eq('empresa_id', TENANT_ID).order('criado_em', { ascending: true });
-      if (!error && data && data.length > 0) return data as Connection[];
-    } catch {
-      // fallback
-    }
+    const { data, error } = await supabase.from('connections').select('*').eq('empresa_id', TENANT_ID).order('criado_em', { ascending: true });
+    if (error) throw new Error(`Erro ao carregar conexões: ${error.message}`);
+    if (data && data.length > 0) return data as Connection[];
     return memoryStore.connections;
   },
 
   async getProducts(): Promise<Product[]> {
-    try {
-      const { data, error } = await supabase.from('products').select('*').eq('empresa_id', TENANT_ID).order('titulo', { ascending: true });
-      if (!error && data && data.length > 0) return data as Product[];
-    } catch {
-      // fallback
-    }
+    const { data, error } = await supabase.from('products').select('*').eq('empresa_id', TENANT_ID).order('titulo', { ascending: true });
+    if (error) throw new Error(`Erro ao carregar produtos: ${error.message}`);
+    if (data && data.length > 0) return data as Product[];
     return memoryStore.products;
   },
 
   async getOrders(): Promise<Order[]> {
-    try {
-      const { data, error } = await supabase.from('orders').select('*').eq('empresa_id', TENANT_ID).order('data', { ascending: false });
-      if (!error && data && data.length > 0) return data as Order[];
-    } catch {
-      // fallback
-    }
+    const { data, error } = await supabase.from('orders').select('*').eq('empresa_id', TENANT_ID).order('data', { ascending: false });
+    if (error) throw new Error(`Erro ao carregar pedidos: ${error.message}`);
+    if (data && data.length > 0) return data as Order[];
     return memoryStore.orders;
   },
 
   async getFinancialEntries(): Promise<FinancialEntry[]> {
-    try {
-      const { data, error } = await supabase.from('financial_entries').select('*').eq('empresa_id', TENANT_ID).order('data', { ascending: false });
-      if (!error && data && data.length > 0) return data as FinancialEntry[];
-    } catch {
-      // fallback
-    }
+    const { data, error } = await supabase.from('financial_entries').select('*').eq('empresa_id', TENANT_ID).order('data', { ascending: false });
+    if (error) throw new Error(`Erro ao carregar lançamentos financeiros: ${error.message}`);
+    if (data && data.length > 0) return data as FinancialEntry[];
     return memoryStore.financialEntries;
   },
 
   async getAlerts(): Promise<Alert[]> {
-    try {
-      const { data, error } = await supabase.from('alerts').select('*').eq('empresa_id', TENANT_ID).order('criado_em', { ascending: false });
-      if (!error && data && data.length > 0) return data as Alert[];
-    } catch {
-      // fallback
-    }
+    const { data, error } = await supabase.from('alerts').select('*').eq('empresa_id', TENANT_ID).order('criado_em', { ascending: false });
+    if (error) throw new Error(`Erro ao carregar alertas: ${error.message}`);
+    if (data && data.length > 0) return data as Alert[];
     return memoryStore.alerts;
   },
 
   async reconcileSystemAlerts(): Promise<{ totalDetected: number; alerts: Alert[] }> {
-    // 1. Scan products for inventory & price discrepancies
-    memoryStore.products.forEach((prod) => {
-      // Critical Stock Zero
+    const products = await this.getProducts();
+    const orders = await this.getOrders();
+    const connections = await this.getConnections();
+    const existingAlerts = await this.getAlerts();
+    const newAlerts: Omit<Alert, 'id' | 'criado_em'>[] = [];
+
+    const checkExists = (sku: string, tipo: string) =>
+      existingAlerts.some((a) => a.tipo === tipo && a.mensagem.includes(sku));
+
+    products.forEach((prod) => {
       if (prod.estoque_marketplace === 0 && prod.estoque > 0) {
-        const title = `Estoque Esgotado em Marketplace (${prod.marketplace || 'Marketplace'})`;
-        const exists = memoryStore.alerts.some(
-          (a) => a.titulo.includes(prod.sku) || a.mensagem.includes(prod.sku)
-        );
-        if (!exists) {
-          memoryStore.alerts.unshift({
-            id: `alt-sys-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        if (!checkExists(prod.sku, 'divergencia_estoque')) {
+          newAlerts.push({
             empresa_id: TENANT_ID,
-            titulo: title,
+            titulo: `Estoque Esgotado em Marketplace (${prod.marketplace || 'Marketplace'})`,
             mensagem: `O produto ${prod.sku} (${prod.titulo}) possui ${prod.estoque} unidades no ERP mas consta com estoque ZERO no marketplace ${prod.marketplace || 'Marketplace'}.`,
             tipo: 'divergencia_estoque',
             severidade: 'critico',
@@ -993,23 +978,17 @@ export const apiService = {
             modulo: 'Estoque',
             impacto_financeiro: Number((prod.estoque * prod.preco).toFixed(2)),
             sugestao: `Executar sincronização forçada de saldo do produto ${prod.sku} para ${prod.marketplace || 'Marketplace'}.`,
-            criado_em: new Date().toISOString(),
+            responsavel: null,
+            resolvido_em: null,
           });
         }
       }
-
-      // Price Divergence
       if (prod.preco_marketplace !== null && Math.abs(prod.preco - prod.preco_marketplace) > 0.01) {
-        const title = `Divergência de Preço de Venda (${prod.marketplace || 'Marketplace'})`;
-        const exists = memoryStore.alerts.some(
-          (a) => a.tipo === 'divergencia_preco' && a.mensagem.includes(prod.sku)
-        );
-        if (!exists) {
+        if (!checkExists(prod.sku, 'divergencia_preco')) {
           const diff = Math.abs(prod.preco - prod.preco_marketplace);
-          memoryStore.alerts.unshift({
-            id: `alt-sys-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          newAlerts.push({
             empresa_id: TENANT_ID,
-            titulo: title,
+            titulo: `Divergência de Preço de Venda (${prod.marketplace || 'Marketplace'})`,
             mensagem: `O produto ${prod.sku} está cadastrado a R$ ${prod.preco.toFixed(2)} no ERP mas é vendido a R$ ${prod.preco_marketplace.toFixed(2)} em ${prod.marketplace || 'Marketplace'}.`,
             tipo: 'divergencia_preco',
             severidade: 'alto',
@@ -1018,19 +997,17 @@ export const apiService = {
             modulo: 'Comercial',
             impacto_financeiro: Number((diff * prod.estoque).toFixed(2)),
             sugestao: `Atualizar tabela de preço de venda do produto ${prod.sku} em ${prod.marketplace || 'Marketplace'}.`,
-            criado_em: new Date().toISOString(),
+            responsavel: null,
+            resolvido_em: null,
           });
         }
       }
     });
 
-    // 2. Scan orders for conciliation & pending status
-    memoryStore.orders.forEach((ord) => {
+    orders.forEach((ord) => {
       if (ord.conciliacao === 'divergencia_critica') {
-        const exists = memoryStore.alerts.some((a) => a.mensagem.includes(ord.numero));
-        if (!exists) {
-          memoryStore.alerts.unshift({
-            id: `alt-ord-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        if (!existingAlerts.some((a) => a.mensagem.includes(ord.numero))) {
+          newAlerts.push({
             empresa_id: TENANT_ID,
             titulo: `Divergência Crítica de Conciliação (${ord.numero})`,
             mensagem: `O pedido ${ord.numero} em ${ord.marketplace} de R$ ${ord.valor.toFixed(2)} possui repasse com divergência cadastrada.`,
@@ -1041,19 +1018,17 @@ export const apiService = {
             modulo: 'Financeiro',
             impacto_financeiro: ord.valor,
             sugestao: `Conferir extrato financeiro do pedido ${ord.numero} e abrir chamado no canal.`,
-            criado_em: new Date().toISOString(),
+            responsavel: null,
+            resolvido_em: null,
           });
         }
       }
     });
 
-    // 3. Scan connections for inactive/errors
-    memoryStore.connections.forEach((conn) => {
+    connections.forEach((conn) => {
       if (conn.status === 'erro' || !conn.ativo) {
-        const exists = memoryStore.alerts.some((a) => a.mensagem.includes(conn.nome));
-        if (!exists) {
-          memoryStore.alerts.unshift({
-            id: `alt-conn-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        if (!existingAlerts.some((a) => a.mensagem.includes(conn.nome))) {
+          newAlerts.push({
             empresa_id: TENANT_ID,
             titulo: `Conexão Instável ou Inativa (${conn.nome})`,
             mensagem: `A conexão ${conn.nome} (${conn.fornecedor}) está ${conn.status === 'erro' ? 'com erro de API' : 'desativada'}.`,
@@ -1064,43 +1039,41 @@ export const apiService = {
             modulo: 'Integrações',
             impacto_financeiro: 0,
             sugestao: `Revisar token de acesso e reativar a conexão ${conn.nome} no painel de Integrações.`,
-            criado_em: new Date().toISOString(),
+            responsavel: null,
+            resolvido_em: null,
           });
         }
       }
     });
 
-    const activeAlerts = memoryStore.alerts.filter((a) => a.status !== 'resolvido');
-    return { totalDetected: activeAlerts.length, alerts: memoryStore.alerts };
+    if (newAlerts.length > 0) {
+      const { error } = await supabase.from('alerts').insert(newAlerts);
+      if (error) throw new Error(`Erro ao inserir alertas: ${error.message}`);
+    }
+
+    const allAlerts = await this.getAlerts();
+    const activeAlerts = allAlerts.filter((a) => a.status !== 'resolvido');
+    return { totalDetected: activeAlerts.length, alerts: allAlerts };
   },
 
   async getAuditEntries(): Promise<AuditEntry[]> {
-    try {
-      const { data, error } = await supabase.from('audit_log').select('*').eq('empresa_id', TENANT_ID).order('criado_em', { ascending: false });
-      if (!error && data && data.length > 0) return data as AuditEntry[];
-    } catch {
-      // fallback
-    }
+    const { data, error } = await supabase.from('audit_log').select('*').eq('empresa_id', TENANT_ID).order('criado_em', { ascending: false });
+    if (error) throw new Error(`Erro ao carregar auditoria: ${error.message}`);
+    if (data && data.length > 0) return data as AuditEntry[];
     return memoryStore.auditEntries;
   },
 
   async getSyncHistory(): Promise<SyncHistory[]> {
-    try {
-      const { data, error } = await supabase.from('sync_history').select('*').eq('empresa_id', TENANT_ID).order('inicio', { ascending: false });
-      if (!error && data && data.length > 0) return data as SyncHistory[];
-    } catch {
-      // fallback
-    }
+    const { data, error } = await supabase.from('sync_history').select('*').eq('empresa_id', TENANT_ID).order('inicio', { ascending: false });
+    if (error) throw new Error(`Erro ao carregar histórico de sync: ${error.message}`);
+    if (data && data.length > 0) return data as SyncHistory[];
     return memoryStore.syncHistory;
   },
 
-  async resolveAlert(alertId: string, responsavel: string = 'Administrador'): Promise<void> {
+  async resolveAlert(alertId: string, responsavel: string = 'Sistema'): Promise<void> {
     const resolvidoEm = new Date().toISOString();
-    try {
-      await supabase.from('alerts').update({ status: 'resolvido', resolvido_em: resolvidoEm }).eq('id', alertId);
-    } catch {
-      // fallback
-    }
+    const { error } = await supabase.from('alerts').update({ status: 'resolvido', resolvido_em: resolvidoEm, responsavel }).eq('id', alertId);
+    if (error) throw new Error(`Erro ao resolver alerta: ${error.message}`);
     const target = memoryStore.alerts.find((a) => a.id === alertId);
     if (target) {
       target.status = 'resolvido';
@@ -1109,61 +1082,68 @@ export const apiService = {
     }
   },
 
-  async resolveAlertsBatch(alertIds: string[], responsavel: string = 'Administrador'): Promise<void> {
+  async resolveAlertsBatch(alertIds: string[], responsavel: string = 'Sistema'): Promise<void> {
     for (const id of alertIds) {
       await this.resolveAlert(id, responsavel);
     }
   },
 
-  async resolveAllAlerts(responsavel: string = 'Administrador'): Promise<number> {
-    const activeIds = memoryStore.alerts
-      .filter((a) => a.status !== 'resolvido')
-      .map((a) => a.id);
-    if (activeIds.length > 0) {
-      await this.resolveAlertsBatch(activeIds, responsavel);
-    }
-    return activeIds.length;
+  async resolveAllAlerts(responsavel: string = 'Sistema'): Promise<number> {
+    const { data, error } = await supabase
+      .from('alerts')
+      .update({ status: 'resolvido', resolvido_em: new Date().toISOString(), responsavel })
+      .neq('status', 'resolvido')
+      .eq('empresa_id', TENANT_ID)
+      .select('id');
+    if (error) throw new Error(`Erro ao resolver todos os alertas: ${error.message}`);
+    const resolvedIds = (data || []).map((r: { id: string }) => r.id);
+    memoryStore.alerts.forEach((a) => {
+      if (a.status !== 'resolvido') {
+        a.status = 'resolvido';
+        a.resolvido_em = new Date().toISOString();
+        a.responsavel = responsavel;
+      }
+    });
+    return resolvedIds.length;
   },
 
   async toggleConnection(connectionId: string, ativo: boolean): Promise<void> {
-    try {
-      await supabase.from('connections').update({ ativo }).eq('id', connectionId);
-    } catch {
-      // fallback
-    }
+    const status = ativo ? 'online' : 'desativado';
+    const { error } = await supabase.from('connections').update({ ativo, status }).eq('id', connectionId);
+    if (error) throw new Error(`Erro ao alternar conexão: ${error.message}`);
     const conn = memoryStore.connections.find((c) => c.id === connectionId);
     if (conn) {
       conn.ativo = ativo;
-      conn.status = ativo ? 'online' : 'desativado';
+      conn.status = status;
     }
   },
 
   async createConnection(conn: Omit<Connection, 'id' | 'empresa_id'>): Promise<Connection> {
     const isAtivo = conn.ativo ?? true;
-    const newConn: Connection = {
-      ...conn,
-      id: `conn-${Date.now()}`,
+    const insertData = {
       empresa_id: TENANT_ID,
+      nome: conn.nome,
+      tipo: conn.tipo,
+      fornecedor: conn.fornecedor,
+      url: conn.url,
+      metodo: conn.metodo,
+      autenticacao: conn.autenticacao,
       status: isAtivo ? (conn.status || 'online') : 'desativado',
-      registros: conn.registros || Math.floor(Math.random() * 500) + 120,
-      tempo_resposta_ms: conn.tempo_resposta_ms || Math.floor(Math.random() * 180) + 90,
+      intervalo_min: conn.intervalo_min,
+      registros: conn.registros || 0,
+      tempo_resposta_ms: conn.tempo_resposta_ms || 0,
       ativo: isAtivo,
+      token_sec: conn.token_sec || null,
       ultima_sincronizacao: new Date().toISOString(),
-      criado_em: new Date().toISOString(),
     };
-
-    try {
-      const { data, error } = await supabase.from('connections').insert(newConn).select().single();
-      if (!error && data) return data as Connection;
-    } catch {
-      // fallback
-    }
-
-    memoryStore.connections.unshift(newConn);
-    return newConn;
+    const { data, error } = await supabase.from('connections').insert(insertData).select().single();
+    if (error) throw new Error(`Erro ao criar conexão: ${error.message}`);
+    return data as Connection;
   },
 
   async updateConnection(connectionId: string, updates: Partial<Connection>): Promise<void> {
+    const { error } = await supabase.from('connections').update(updates).eq('id', connectionId);
+    if (error) throw new Error(`Erro ao atualizar conexão: ${error.message}`);
     const idx = memoryStore.connections.findIndex((c) => c.id === connectionId);
     if (idx !== -1) {
       const current = memoryStore.connections[idx];
@@ -1175,26 +1155,16 @@ export const apiService = {
       }
       memoryStore.connections[idx] = { ...current, ...updates, status: newStatus };
     }
-
-    try {
-      await supabase.from('connections').update(updates).eq('id', connectionId);
-    } catch {
-      // fallback
-    }
   },
 
   async deleteConnection(connectionId: string): Promise<void> {
-    try {
-      await supabase.from('connections').delete().eq('id', connectionId);
-    } catch {
-      // fallback
-    }
+    const { error } = await supabase.from('connections').delete().eq('id', connectionId);
+    if (error) throw new Error(`Erro ao excluir conexão: ${error.message}`);
     memoryStore.connections = memoryStore.connections.filter((c) => c.id !== connectionId);
   },
 
   async insertAudit(entry: Partial<AuditEntry> & Pick<AuditEntry, 'usuario' | 'acao' | 'modulo'>): Promise<void> {
-    const newEntry: AuditEntry = {
-      id: `aud-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    const insertData = {
       empresa_id: TENANT_ID,
       usuario: entry.usuario,
       acao: entry.acao,
@@ -1202,86 +1172,58 @@ export const apiService = {
       registro: entry.registro || 'Geral',
       antes: entry.antes ?? null,
       depois: entry.depois ?? null,
-      ip: entry.ip ?? '189.120.44.12',
-      navegador: entry.navegador ?? (typeof navigator !== 'undefined' ? navigator.userAgent : 'Server'),
-      criado_em: new Date().toISOString(),
+      ip: entry.ip ?? null,
+      navegador: entry.navegador ?? (typeof navigator !== 'undefined' ? navigator.userAgent : null),
     };
-
-    try {
-      await supabase.from('audit_log').insert(newEntry);
-    } catch {
-      // fallback
-    }
-    memoryStore.auditEntries.unshift(newEntry);
+    const { error } = await supabase.from('audit_log').insert(insertData);
+    if (error) throw new Error(`Erro ao registrar auditoria: ${error.message}`);
   },
 
   async addSyncHistory(history: Omit<SyncHistory, 'id' | 'empresa_id'>): Promise<void> {
-    const newRecord: SyncHistory = {
-      ...history,
-      id: `sync-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    const insertData = {
       empresa_id: TENANT_ID,
+      conexao_id: history.conexao_id,
+      conexao_nome: history.conexao_nome,
+      inicio: history.inicio,
+      fim: history.fim,
+      duracao_ms: history.duracao_ms,
+      registros_recebidos: history.registros_recebidos,
+      registros_alterados: history.registros_alterados,
+      erros: history.erros,
+      status: history.status,
+      detalhes: history.detalhes,
     };
-
-    try {
-      await supabase.from('sync_history').insert(newRecord);
-    } catch {
-      // fallback
-    }
-    memoryStore.syncHistory.unshift(newRecord);
+    const { error } = await supabase.from('sync_history').insert(insertData);
+    if (error) throw new Error(`Erro ao registrar histórico de sync: ${error.message}`);
   },
 
   async updateProductConciliation(productId: string, status: Product['conciliacao']): Promise<void> {
+    const atualizado_em = new Date().toISOString();
+    const updateData: Record<string, unknown> = { conciliacao: status, atualizado_em };
     const p = memoryStore.products.find((prod) => prod.id === productId);
+    if (p && status === 'conciliado') {
+      updateData.preco_marketplace = p.preco;
+      updateData.estoque_marketplace = p.estoque;
+    }
+    const { error } = await supabase.from('products').update(updateData).eq('id', productId);
+    if (error) throw new Error(`Erro ao atualizar conciliação: ${error.message}`);
     if (p) {
       p.conciliacao = status;
-      p.atualizado_em = new Date().toISOString();
+      p.atualizado_em = atualizado_em;
       if (status === 'conciliado') {
         p.preco_marketplace = p.preco;
         p.estoque_marketplace = p.estoque;
       }
-      try {
-        await supabase.from('products').update({
-          conciliacao: status,
-          preco_marketplace: p.preco_marketplace,
-          estoque_marketplace: p.estoque_marketplace,
-          atualizado_em: p.atualizado_em,
-        }).eq('id', productId);
-      } catch {
-        // fallback
-      }
-
-      // Auto-resolve any active alerts associated with this product SKU or title
-      const matchingAlerts = memoryStore.alerts.filter(
-        (a) => a.status !== 'resolvido' && (a.mensagem.includes(p.sku) || a.titulo.includes(p.sku))
-      );
-      matchingAlerts.forEach((a) => {
-        a.status = 'resolvido';
-        a.resolvido_em = new Date().toISOString();
-        a.responsavel = 'Administrador (Conciliação)';
-      });
     }
   },
 
   async updateOrderConciliation(orderId: string, status: ConciliationStatus): Promise<void> {
-    try {
-      await supabase.from('orders').update({ conciliacao: status }).eq('id', orderId);
-    } catch {
-      // fallback
-    }
+    const { error } = await supabase.from('orders').update({ conciliacao: status, atualizado_em: new Date().toISOString() }).eq('id', orderId);
+    if (error) throw new Error(`Erro ao atualizar conciliação do pedido: ${error.message}`);
     const o = memoryStore.orders.find((ord) => ord.id === orderId);
     if (o) {
       o.conciliacao = status;
       o.atualizado_em = new Date().toISOString();
-
-      // Auto-resolve any active alerts associated with this order
-      const matchingAlerts = memoryStore.alerts.filter(
-        (a) => a.status !== 'resolvido' && (a.mensagem.includes(o.numero) || a.titulo.includes(o.numero))
-      );
-      matchingAlerts.forEach((a) => {
-        a.status = 'resolvido';
-        a.resolvido_em = new Date().toISOString();
-        a.responsavel = 'Administrador (Conciliação)';
-      });
     }
   },
 
@@ -1300,44 +1242,27 @@ export const apiService = {
     p.conciliacao = 'conciliado';
     p.atualizado_em = new Date().toISOString();
 
-    try {
-      await supabase.from('products').update({
-        preco: p.preco,
-        preco_marketplace: p.preco_marketplace,
-        estoque: p.estoque,
-        estoque_marketplace: p.estoque_marketplace,
-        conciliacao: 'conciliado',
-        atualizado_em: p.atualizado_em,
-      }).eq('id', productId);
-    } catch {
-      // fallback
-    }
-
-    // Auto-resolve alerts for this SKU
-    const matchingAlerts = memoryStore.alerts.filter(
-      (a) => a.status !== 'resolvido' && (a.mensagem.includes(p.sku) || a.titulo.includes(p.sku))
-    );
-    matchingAlerts.forEach((a) => {
-      a.status = 'resolvido';
-      a.resolvido_em = new Date().toISOString();
-      a.responsavel = 'Administrador (Equalização)';
-    });
+    const { error } = await supabase.from('products').update({
+      preco: p.preco,
+      preco_marketplace: p.preco_marketplace,
+      estoque: p.estoque,
+      estoque_marketplace: p.estoque_marketplace,
+      conciliacao: 'conciliado',
+      atualizado_em: p.atualizado_em,
+    }).eq('id', productId);
+    if (error) throw new Error(`Erro ao equalizar produto: ${error.message}`);
 
     return p;
   },
 
   async updateProduct(productId: string, updates: Partial<Product>): Promise<void> {
-    try {
-      await supabase.from('products').update(updates).eq('id', productId);
-    } catch {
-      // fallback
-    }
+    const { error } = await supabase.from('products').update(updates).eq('id', productId);
+    if (error) throw new Error(`Erro ao atualizar produto: ${error.message}`);
     const p = memoryStore.products.find((prod) => prod.id === productId);
     if (p) {
       Object.assign(p, updates);
       p.atualizado_em = new Date().toISOString();
 
-      // Recalculate conciliation status if prices or stock were modified
       const priceERP = Number(p.preco);
       const priceMP = p.preco_marketplace !== null ? Number(p.preco_marketplace) : priceERP;
       const stockERP = Number(p.estoque);
@@ -1355,42 +1280,36 @@ export const apiService = {
       } else {
         p.conciliacao = 'divergencia_leve';
       }
-
-      if (p.conciliacao === 'conciliado') {
-        const matchingAlerts = memoryStore.alerts.filter(
-          (a) => a.status !== 'resolvido' && (a.mensagem.includes(p.sku) || a.titulo.includes(p.sku))
-        );
-        matchingAlerts.forEach((a) => {
-          a.status = 'resolvido';
-          a.resolvido_em = new Date().toISOString();
-          a.responsavel = 'Administrador (Edição)';
-        });
-      }
     }
   },
 
   async createOrder(newOrd: Omit<Order, 'id' | 'empresa_id'>): Promise<Order> {
-    const created: Order = {
-      ...newOrd,
-      id: `ord-${Date.now()}`,
+    const insertData = {
       empresa_id: TENANT_ID,
+      numero: newOrd.numero,
+      codigo_erp: newOrd.codigo_erp || null,
+      marketplace: newOrd.marketplace,
+      cliente: newOrd.cliente,
+      cliente_documento: newOrd.cliente_documento || null,
+      valor: newOrd.valor,
+      frete: newOrd.frete,
+      comissao: newOrd.comissao,
+      desconto: newOrd.desconto,
+      status: newOrd.status,
+      pagamento: newOrd.pagamento,
+      envio: newOrd.envio,
+      transportadora: newOrd.transportadora,
+      conciliacao: newOrd.conciliacao,
       data: newOrd.data || new Date().toISOString(),
-      atualizado_em: new Date().toISOString(),
+      itens_qtd: newOrd.itens_qtd,
+      observacoes: newOrd.observacoes || null,
     };
+    const { data, error } = await supabase.from('orders').insert(insertData).select().single();
+    if (error) throw new Error(`Erro ao criar pedido: ${error.message}`);
+    const created = data as Order;
 
-    try {
-      const { data, error } = await supabase.from('orders').insert(created).select().single();
-      if (!error && data) return data as Order;
-    } catch {
-      // fallback
-    }
-
-    memoryStore.orders.unshift(created);
-
-    // Sync financial entry if active
     if (created.status !== 'cancelado') {
-      const fin: FinancialEntry = {
-        id: `fin-${Date.now()}`,
+      const finData = {
         empresa_id: TENANT_ID,
         pedido_id: created.id,
         pedido: created.numero,
@@ -1398,193 +1317,152 @@ export const apiService = {
         valor: Number(created.valor),
         taxa: 12,
         comissao: Number(created.comissao),
-        margem:
-          Number(created.valor) > 0
-            ? Number(
-                (
-                  ((Number(created.valor) - Number(created.comissao) - Number(created.frete) - Number(created.desconto)) /
-                    Number(created.valor)) *
-                  100
-                ).toFixed(1)
-              )
-            : 0,
+        margem: Number(created.valor) > 0
+          ? Number((((Number(created.valor) - Number(created.comissao) - Number(created.frete) - Number(created.desconto)) / Number(created.valor)) * 100).toFixed(1))
+          : 0,
         origem: created.marketplace,
         data: created.data || new Date().toISOString(),
       };
-      memoryStore.financialEntries.unshift(fin);
+      await supabase.from('financial_entries').insert(finData);
     }
 
     return created;
   },
 
   async updateOrder(orderId: string, updates: Partial<Order>): Promise<void> {
-    try {
-      await supabase.from('orders').update(updates).eq('id', orderId);
-    } catch {
-      // fallback
-    }
+    const { error } = await supabase.from('orders').update(updates).eq('id', orderId);
+    if (error) throw new Error(`Erro ao atualizar pedido: ${error.message}`);
     const o = memoryStore.orders.find((ord) => ord.id === orderId);
     if (o) {
       Object.assign(o, updates);
       o.atualizado_em = new Date().toISOString();
-
       if (updates.itens) {
         o.itens_qtd = updates.itens.reduce((sum, item) => sum + item.quantidade, 0);
-      }
-
-      // Sync financial entry
-      let fin = memoryStore.financialEntries.find(
-        (f) => f.pedido_id === orderId || f.pedido === o.numero
-      );
-      if (!fin) {
-        fin = {
-          id: `fin-${Date.now()}`,
-          empresa_id: TENANT_ID,
-          pedido_id: o.id,
-          pedido: o.numero,
-          tipo: o.status === 'cancelado' ? 'estorno' : 'receita',
-          valor: o.status === 'cancelado' ? -Math.abs(Number(o.valor)) : Number(o.valor),
-          taxa: 12,
-          comissao: Number(o.comissao),
-          margem: 0,
-          origem: o.marketplace,
-          data: o.data || new Date().toISOString(),
-        };
-        memoryStore.financialEntries.unshift(fin);
-      } else {
-        if (o.status === 'cancelado') {
-          fin.tipo = 'estorno';
-          fin.valor = -Math.abs(Number(o.valor));
-        } else {
-          fin.valor = Number(o.valor);
-          fin.comissao = Number(o.comissao);
-          fin.origem = o.marketplace;
-          fin.tipo = 'receita';
-          const net = Number(o.valor) - Number(o.comissao) - Number(o.frete) - Number(o.desconto);
-          fin.margem = Number(o.valor) > 0 ? Number(((net / Number(o.valor)) * 100).toFixed(1)) : 0;
-        }
-      }
-
-      if (o.conciliacao === 'conciliado') {
-        const matchingAlerts = memoryStore.alerts.filter(
-          (a) => a.status !== 'resolvido' && (a.mensagem.includes(o.numero) || a.titulo.includes(o.numero))
-        );
-        matchingAlerts.forEach((a) => {
-          a.status = 'resolvido';
-          a.resolvido_em = new Date().toISOString();
-          a.responsavel = 'Administrador (Pedido)';
-        });
       }
     }
   },
 
   async createFinancialEntry(newEntry: Omit<FinancialEntry, 'id' | 'empresa_id'>): Promise<FinancialEntry> {
-    const created: FinancialEntry = {
-      ...newEntry,
-      id: `fin-${Date.now()}`,
+    const insertData = {
       empresa_id: TENANT_ID,
+      pedido_id: newEntry.pedido_id || null,
+      pedido: newEntry.pedido || null,
+      tipo: newEntry.tipo,
+      valor: newEntry.valor,
+      taxa: newEntry.taxa,
+      comissao: newEntry.comissao,
+      margem: newEntry.margem,
+      origem: newEntry.origem,
       data: newEntry.data || new Date().toISOString(),
-      criado_em: new Date().toISOString(),
     };
-
-    try {
-      const { data, error } = await supabase.from('financial_entries').insert(created).select().single();
-      if (!error && data) return data as FinancialEntry;
-    } catch {
-      // fallback
-    }
-
-    memoryStore.financialEntries.unshift(created);
-    return created;
+    const { data, error } = await supabase.from('financial_entries').insert(insertData).select().single();
+    if (error) throw new Error(`Erro ao criar lançamento financeiro: ${error.message}`);
+    return data as FinancialEntry;
   },
 
   async deleteFinancialEntry(id: string): Promise<void> {
-    try {
-      await supabase.from('financial_entries').delete().eq('id', id);
-    } catch {
-      // fallback
-    }
-    memoryStore.financialEntries = memoryStore.financialEntries.filter((f) => f.id !== id);
+    const { error } = await supabase.from('financial_entries').delete().eq('id', id);
+    if (error) throw new Error(`Erro ao excluir lançamento: ${error.message}`);
   },
 
   async deleteOrder(orderId: string): Promise<void> {
-    try {
-      await supabase.from('orders').delete().eq('id', orderId);
-    } catch {
-      // fallback
-    }
-    memoryStore.orders = memoryStore.orders.filter((o) => o.id !== orderId);
-    memoryStore.financialEntries = memoryStore.financialEntries.filter(
-      (f) => f.pedido_id !== orderId
-    );
+    const { error } = await supabase.from('orders').delete().eq('id', orderId);
+    if (error) throw new Error(`Erro ao excluir pedido: ${error.message}`);
   },
 
   async updateCompany(updates: Partial<Company>): Promise<void> {
-    try {
-      await supabase.from('companies').update(updates).eq('id', TENANT_ID);
-    } catch {
-      // fallback
-    }
+    const { error } = await supabase.from('companies').update(updates).eq('id', TENANT_ID);
+    if (error) throw new Error(`Erro ao atualizar empresa: ${error.message}`);
     Object.assign(memoryStore.company, updates);
-    try {
-      localStorage.setItem('a2s_company', JSON.stringify(memoryStore.company));
-    } catch {
-      // ignore
-    }
   },
 
   async getSettings(): Promise<SystemSettings> {
+    const { data, error } = await supabase.from('system_settings').select('*').eq('id', 1).maybeSingle();
+    if (error) throw new Error(`Erro ao carregar configurações: ${error.message}`);
+    if (data) {
+      return {
+        autoResolveThreshold: Number(data.auto_resolve_threshold),
+        maxRetries: data.max_retries,
+        timeoutSeconds: data.timeout_seconds,
+        syncIntervalMinutes: data.sync_interval_minutes,
+        autoConciliateEnabled: data.auto_conciliate_enabled,
+        notifyEmail: data.notify_email,
+        notifySlack: data.notify_slack,
+        notifyCriticalAlerts: data.notify_critical_alerts,
+        slackWebhookUrl: data.slack_webhook_url || '',
+        idioma: data.idioma,
+      } as SystemSettings;
+    }
     return memoryStore.settings;
   },
 
   async updateSettings(updates: Partial<SystemSettings>): Promise<SystemSettings> {
+    const updateData: Record<string, unknown> = {};
+    if (updates.autoResolveThreshold !== undefined) updateData.auto_resolve_threshold = updates.autoResolveThreshold;
+    if (updates.maxRetries !== undefined) updateData.max_retries = updates.maxRetries;
+    if (updates.timeoutSeconds !== undefined) updateData.timeout_seconds = updates.timeoutSeconds;
+    if (updates.syncIntervalMinutes !== undefined) updateData.sync_interval_minutes = updates.syncIntervalMinutes;
+    if (updates.autoConciliateEnabled !== undefined) updateData.auto_conciliate_enabled = updates.autoConciliateEnabled;
+    if (updates.notifyEmail !== undefined) updateData.notify_email = updates.notifyEmail;
+    if (updates.notifySlack !== undefined) updateData.notify_slack = updates.notifySlack;
+    if (updates.notifyCriticalAlerts !== undefined) updateData.notify_critical_alerts = updates.notifyCriticalAlerts;
+    if (updates.slackWebhookUrl !== undefined) updateData.slack_webhook_url = updates.slackWebhookUrl;
+    if (updates.idioma !== undefined) updateData.idioma = updates.idioma;
+
+    const { error } = await supabase.from('system_settings').update(updateData).eq('id', 1);
+    if (error) throw new Error(`Erro ao atualizar configurações: ${error.message}`);
     Object.assign(memoryStore.settings, updates);
-    try {
-      localStorage.setItem('a2s_settings', JSON.stringify(memoryStore.settings));
-    } catch {
-      // ignore
-    }
     return memoryStore.settings;
   },
 
   async getUsers(): Promise<SystemUser[]> {
+    const { data, error } = await supabase.from('system_users').select('*').order('nome', { ascending: true });
+    if (error) throw new Error(`Erro ao carregar usuários: ${error.message}`);
+    if (data && data.length > 0) {
+      return data.map((u: Record<string, unknown>) => ({
+        id: String(u.id),
+        nome: String(u.nome),
+        email: String(u.email),
+        papel: String(u.papel) as SystemUser['papel'],
+        status: String(u.status) as SystemUser['status'],
+        ultimo_acesso: String(u.ultimo_acesso),
+      })) as SystemUser[];
+    }
     return memoryStore.users;
   },
 
   async createUser(user: Omit<SystemUser, 'id' | 'ultimo_acesso'>): Promise<SystemUser> {
-    const newUser: SystemUser = {
-      ...user,
-      id: `usr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      ultimo_acesso: new Date().toISOString(),
+    const insertData = {
+      nome: user.nome,
+      email: user.email,
+      papel: user.papel,
+      status: user.status || 'Ativo',
     };
-    memoryStore.users.unshift(newUser);
-    try {
-      localStorage.setItem('a2s_users', JSON.stringify(memoryStore.users));
-    } catch {
-      // ignore
-    }
-    return newUser;
+    const { data, error } = await supabase.from('system_users').insert(insertData).select().single();
+    if (error) throw new Error(`Erro ao criar usuário: ${error.message}`);
+    return {
+      id: String(data.id),
+      nome: String(data.nome),
+      email: String(data.email),
+      papel: String(data.papel) as SystemUser['papel'],
+      status: String(data.status) as SystemUser['status'],
+      ultimo_acesso: String(data.ultimo_acesso),
+    };
   },
 
   async updateUser(id: string, updates: Partial<SystemUser>): Promise<void> {
-    const user = memoryStore.users.find((u) => u.id === id);
-    if (user) {
-      Object.assign(user, updates);
-      try {
-        localStorage.setItem('a2s_users', JSON.stringify(memoryStore.users));
-      } catch {
-        // ignore
-      }
-    }
+    const updateData: Record<string, unknown> = {};
+    if (updates.nome !== undefined) updateData.nome = updates.nome;
+    if (updates.email !== undefined) updateData.email = updates.email;
+    if (updates.papel !== undefined) updateData.papel = updates.papel;
+    if (updates.status !== undefined) updateData.status = updates.status;
+    const { error } = await supabase.from('system_users').update(updateData).eq('id', id);
+    if (error) throw new Error(`Erro ao atualizar usuário: ${error.message}`);
   },
 
   async deleteUser(id: string): Promise<void> {
-    memoryStore.users = memoryStore.users.filter((u) => u.id !== id);
-    try {
-      localStorage.setItem('a2s_users', JSON.stringify(memoryStore.users));
-    } catch {
-      // ignore
-    }
+    const { error } = await supabase.from('system_users').delete().eq('id', id);
+    if (error) throw new Error(`Erro ao excluir usuário: ${error.message}`);
   },
 
   async exportFullBackup(): Promise<{
@@ -1602,20 +1480,33 @@ export const apiService = {
     exportHistory: ExportHistoryEntry[];
     exportSchedules: ExportSchedule[];
   }> {
+    const [company, settings, users, connections, products, orders, financialEntries, alerts, auditEntries, exportHistory, exportSchedules] = await Promise.all([
+      this.getCompany(),
+      this.getSettings(),
+      this.getUsers(),
+      this.getConnections(),
+      this.getProducts(),
+      this.getOrders(),
+      this.getFinancialEntries(),
+      this.getAlerts(),
+      this.getAuditEntries(),
+      this.getExportHistory(),
+      this.getExportSchedules(),
+    ]);
     return {
       version: '2.0',
       exportedAt: new Date().toISOString(),
-      company: memoryStore.company,
-      settings: memoryStore.settings,
-      users: memoryStore.users,
-      connections: memoryStore.connections,
-      products: memoryStore.products,
-      orders: memoryStore.orders,
-      financialEntries: memoryStore.financialEntries,
-      alerts: memoryStore.alerts,
-      auditEntries: memoryStore.auditEntries,
-      exportHistory: memoryStore.exportHistory,
-      exportSchedules: memoryStore.exportSchedules,
+      company,
+      settings,
+      users,
+      connections,
+      products,
+      orders,
+      financialEntries,
+      alerts,
+      auditEntries,
+      exportHistory,
+      exportSchedules,
     };
   },
 
@@ -1631,61 +1522,78 @@ export const apiService = {
     let recordsCount = 0;
 
     if (data.company && typeof data.company === 'object') {
-      memoryStore.company = { ...DEFAULT_COMPANY, ...data.company };
-      localStorage.setItem('a2s_company', JSON.stringify(memoryStore.company));
+      await supabase.from('companies').upsert({ ...data.company, id: TENANT_ID });
       recordsCount += 1;
     }
 
     if (data.settings && typeof data.settings === 'object') {
-      memoryStore.settings = { ...DEFAULT_SETTINGS, ...data.settings };
-      localStorage.setItem('a2s_settings', JSON.stringify(memoryStore.settings));
+      const s = data.settings;
+      await supabase.from('system_settings').upsert({
+        id: 1,
+        auto_resolve_threshold: s.autoResolveThreshold ?? 0.5,
+        max_retries: s.maxRetries ?? 3,
+        timeout_seconds: s.timeoutSeconds ?? 15,
+        sync_interval_minutes: s.syncIntervalMinutes ?? 15,
+        auto_conciliate_enabled: s.autoConciliateEnabled ?? true,
+        notify_email: s.notifyEmail ?? true,
+        notify_slack: s.notifySlack ?? false,
+        notify_critical_alerts: s.notifyCriticalAlerts ?? true,
+        slack_webhook_url: s.slackWebhookUrl ?? '',
+        idioma: s.idioma ?? 'pt-BR',
+      });
       recordsCount += 1;
     }
 
-    if (Array.isArray(data.users)) {
-      memoryStore.users = data.users;
-      localStorage.setItem('a2s_users', JSON.stringify(memoryStore.users));
-      recordsCount += data.users.length;
+    if (Array.isArray(data.users) && data.users.length > 0) {
+      const { error } = await supabase.from('system_users').upsert(data.users.map((u: SystemUser) => ({
+        id: u.id,
+        nome: u.nome,
+        email: u.email,
+        papel: u.papel,
+        status: u.status,
+        ultimo_acesso: u.ultimo_acesso,
+      })));
+      if (!error) recordsCount += data.users.length;
     }
 
-    if (Array.isArray(data.connections)) {
-      memoryStore.connections = data.connections;
-      recordsCount += data.connections.length;
+    if (Array.isArray(data.connections) && data.connections.length > 0) {
+      const { error } = await supabase.from('connections').upsert(data.connections);
+      if (!error) recordsCount += data.connections.length;
     }
 
-    if (Array.isArray(data.products)) {
-      memoryStore.products = data.products;
-      recordsCount += data.products.length;
+    if (Array.isArray(data.products) && data.products.length > 0) {
+      const { error } = await supabase.from('products').upsert(data.products);
+      if (!error) recordsCount += data.products.length;
     }
 
-    if (Array.isArray(data.orders)) {
-      memoryStore.orders = data.orders;
-      recordsCount += data.orders.length;
+    if (Array.isArray(data.orders) && data.orders.length > 0) {
+      const { error } = await supabase.from('orders').upsert(data.orders);
+      if (!error) recordsCount += data.orders.length;
     }
 
-    if (Array.isArray(data.financialEntries)) {
-      memoryStore.financialEntries = data.financialEntries;
-      recordsCount += data.financialEntries.length;
+    if (Array.isArray(data.financialEntries) && data.financialEntries.length > 0) {
+      const { error } = await supabase.from('financial_entries').upsert(data.financialEntries);
+      if (!error) recordsCount += data.financialEntries.length;
     }
 
-    if (Array.isArray(data.alerts)) {
-      memoryStore.alerts = data.alerts;
-      recordsCount += data.alerts.length;
+    if (Array.isArray(data.alerts) && data.alerts.length > 0) {
+      const { error } = await supabase.from('alerts').upsert(data.alerts);
+      if (!error) recordsCount += data.alerts.length;
     }
 
-    if (Array.isArray(data.auditEntries)) {
-      memoryStore.auditEntries = data.auditEntries;
-      recordsCount += data.auditEntries.length;
+    if (Array.isArray(data.auditEntries) && data.auditEntries.length > 0) {
+      const { error } = await supabase.from('audit_log').upsert(data.auditEntries);
+      if (!error) recordsCount += data.auditEntries.length;
     }
 
-    if (Array.isArray(data.exportHistory)) {
-      memoryStore.exportHistory = data.exportHistory;
-      recordsCount += data.exportHistory.length;
+    if (Array.isArray(data.exportHistory) && data.exportHistory.length > 0) {
+      const { error } = await supabase.from('export_history').upsert(data.exportHistory);
+      if (!error) recordsCount += data.exportHistory.length;
     }
 
-    if (Array.isArray(data.exportSchedules)) {
-      memoryStore.exportSchedules = data.exportSchedules;
-      recordsCount += data.exportSchedules.length;
+    if (Array.isArray(data.exportSchedules) && data.exportSchedules.length > 0) {
+      const { error } = await supabase.from('export_schedules').upsert(data.exportSchedules);
+      if (!error) recordsCount += data.exportSchedules.length;
     }
 
     return {
@@ -1696,16 +1604,11 @@ export const apiService = {
   },
 
   async resetToDefaults(): Promise<void> {
-    memoryStore.company = { ...DEFAULT_COMPANY };
-    memoryStore.settings = { ...DEFAULT_SETTINGS };
-    memoryStore.users = [...DEFAULT_USERS];
-    localStorage.removeItem('a2s_company');
-    localStorage.removeItem('a2s_settings');
-    localStorage.removeItem('a2s_users');
+    await supabase.from('companies').upsert({ ...DEFAULT_COMPANY, id: TENANT_ID });
+    await supabase.from('system_settings').upsert({ id: 1 });
   },
 
   async clearCache(): Promise<void> {
-    // Clear temporary UI/cache keys without destroying persistent state
     const keysToRemove: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
@@ -1719,118 +1622,96 @@ export const apiService = {
   async testConnection(params: { url: string; fornecedor: string }): Promise<{ ok: boolean; latencyMs: number; message: string }> {
     const start = Date.now();
     try {
-      // Perform genuine fetch request with timeout or mock latency check
-      const latencyMs = Math.floor(Math.random() * 80) + 110;
-      await new Promise((resolve) => setTimeout(resolve, latencyMs));
+      const result = await IntegrationHttpClient.request({
+        url: params.url,
+        method: 'GET',
+        timeoutMs: 10000,
+        retries: 0,
+      });
+      const latencyMs = Date.now() - start;
+      if (result.ok) {
+        return {
+          ok: true,
+          latencyMs,
+          message: `Conexão bem-sucedida com ${params.fornecedor || 'Endpoint'}! API respondendo normalmente.`,
+        };
+      }
       return {
-        ok: true,
-        latencyMs: Date.now() - start,
-        message: `Conexão bem-sucedida com ${params.fornecedor || 'Endpoint'}! API respondendo normalmente.`,
+        ok: false,
+        latencyMs,
+        message: `Falha ao conectar na URL ${params.url}. ${result.error || 'Verifique os dados e tente novamente.'}`,
       };
-    } catch {
+    } catch (err) {
       return {
         ok: false,
         latencyMs: Date.now() - start,
-        message: `Falha ao conectar na URL ${params.url}. Verifique os dados e tente novamente.`,
+        message: `Erro de rede ao conectar na URL ${params.url}: ${err instanceof Error ? err.message : 'erro desconhecido'}`,
       };
     }
   },
 
   async getExportHistory(): Promise<ExportHistoryEntry[]> {
-    try {
-      const { data, error } = await supabase
-        .from('export_history')
-        .select('*')
-        .eq('empresa_id', TENANT_ID)
-        .order('criado_em', { ascending: false });
-      if (!error && data && data.length > 0) return data as ExportHistoryEntry[];
-    } catch {
-      // fallback
-    }
+    const { data, error } = await supabase.from('export_history').select('*').eq('empresa_id', TENANT_ID).order('criado_em', { ascending: false });
+    if (error) throw new Error(`Erro ao carregar histórico de exportações: ${error.message}`);
+    if (data && data.length > 0) return data as ExportHistoryEntry[];
     return memoryStore.exportHistory;
   },
 
-  async addExportHistory(
-    entry: Omit<ExportHistoryEntry, 'id' | 'criado_em'>
-  ): Promise<ExportHistoryEntry> {
-    const created: ExportHistoryEntry = {
-      ...entry,
-      id: `exp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+  async addExportHistory(entry: Omit<ExportHistoryEntry, 'id' | 'criado_em'>): Promise<ExportHistoryEntry> {
+    const insertData = {
       empresa_id: TENANT_ID,
-      criado_em: new Date().toISOString(),
+      dataset: entry.dataset,
+      dataset_id: entry.dataset_id,
+      formato: entry.formato,
+      usuario: entry.usuario,
+      registros: entry.registros,
+      tamanho_bytes: entry.tamanho_bytes,
+      tempo_ms: entry.tempo_ms,
+      status: entry.status,
+      observacao: entry.observacao || null,
     };
-
-    try {
-      await supabase.from('export_history').insert(created);
-    } catch {
-      // fallback
-    }
-
-    memoryStore.exportHistory.unshift(created);
-    return created;
+    const { data, error } = await supabase.from('export_history').insert(insertData).select().single();
+    if (error) throw new Error(`Erro ao registrar exportação: ${error.message}`);
+    return data as ExportHistoryEntry;
   },
 
   async clearExportHistory(): Promise<void> {
-    try {
-      await supabase.from('export_history').delete().eq('empresa_id', TENANT_ID);
-    } catch {
-      // fallback
-    }
-    memoryStore.exportHistory = [];
+    const { error } = await supabase.from('export_history').delete().eq('empresa_id', TENANT_ID);
+    if (error) throw new Error(`Erro ao limpar histórico: ${error.message}`);
   },
 
   async getExportSchedules(): Promise<ExportSchedule[]> {
-    try {
-      const { data, error } = await supabase
-        .from('export_schedules')
-        .select('*')
-        .eq('empresa_id', TENANT_ID)
-        .order('criado_em', { ascending: false });
-      if (!error && data && data.length > 0) return data as ExportSchedule[];
-    } catch {
-      // fallback
-    }
+    const { data, error } = await supabase.from('export_schedules').select('*').eq('empresa_id', TENANT_ID).order('criado_em', { ascending: false });
+    if (error) throw new Error(`Erro ao carregar agendamentos: ${error.message}`);
+    if (data && data.length > 0) return data as ExportSchedule[];
     return memoryStore.exportSchedules;
   },
 
-  async createExportSchedule(
-    schedule: Omit<ExportSchedule, 'id' | 'criado_em'>
-  ): Promise<ExportSchedule> {
-    const created: ExportSchedule = {
-      ...schedule,
-      id: `sch-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+  async createExportSchedule(schedule: Omit<ExportSchedule, 'id' | 'criado_em'>): Promise<ExportSchedule> {
+    const insertData = {
       empresa_id: TENANT_ID,
-      criado_em: new Date().toISOString(),
+      nome: schedule.nome,
+      dataset_id: schedule.dataset_id,
+      formato: schedule.formato,
+      frequencia: schedule.frequencia,
+      horario: schedule.horario,
+      email_destino: schedule.email_destino,
+      ativo: schedule.ativo,
+      ultima_execucao: schedule.ultima_execucao || null,
+      proxima_execucao: schedule.proxima_execucao || null,
     };
-
-    try {
-      await supabase.from('export_schedules').insert(created);
-    } catch {
-      // fallback
-    }
-
-    memoryStore.exportSchedules.unshift(created);
-    return created;
+    const { data, error } = await supabase.from('export_schedules').insert(insertData).select().single();
+    if (error) throw new Error(`Erro ao criar agendamento: ${error.message}`);
+    return data as ExportSchedule;
   },
 
   async updateExportSchedule(id: string, updates: Partial<ExportSchedule>): Promise<void> {
-    try {
-      await supabase.from('export_schedules').update(updates).eq('id', id);
-    } catch {
-      // fallback
-    }
-    const found = memoryStore.exportSchedules.find((s) => s.id === id);
-    if (found) {
-      Object.assign(found, updates);
-    }
+    const { error } = await supabase.from('export_schedules').update(updates).eq('id', id);
+    if (error) throw new Error(`Erro ao atualizar agendamento: ${error.message}`);
   },
 
   async deleteExportSchedule(id: string): Promise<void> {
-    try {
-      await supabase.from('export_schedules').delete().eq('id', id);
-    } catch {
-      // fallback
-    }
-    memoryStore.exportSchedules = memoryStore.exportSchedules.filter((s) => s.id !== id);
+    const { error } = await supabase.from('export_schedules').delete().eq('id', id);
+    if (error) throw new Error(`Erro ao excluir agendamento: ${error.message}`);
   },
 };

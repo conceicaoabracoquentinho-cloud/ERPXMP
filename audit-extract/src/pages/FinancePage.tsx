@@ -19,6 +19,7 @@ import {
 import { matchSearchTerm } from '../utils/normalizers';
 import { ORDER_STATUS_CONFIG } from '../config/constants';
 import { FinancialEntry, FinancialType, Order, Product, Company, AuditEntry } from '../types';
+import { useAuditContext } from '../hooks/useAuditContext';
 
 const FINANCIAL_TYPE_CONFIG: Record<FinancialType | string, { label: string; color: string; bg: string }> = {
   receita: {
@@ -56,6 +57,7 @@ const FINANCIAL_TYPE_CONFIG: Record<FinancialType | string, { label: string; col
 export const FinancePage: React.FC = () => {
   const toast = useToast();
   const { refreshTrigger, notifyDataChanged } = useSync();
+  const auditCtx = useAuditContext();
 
   // Primary Data States
   const [loading, setLoading] = useState(true);
@@ -334,14 +336,14 @@ export const FinancePage: React.FC = () => {
       });
 
       await apiService.insertAudit({
-        usuario: 'Auditor Financeiro (Sistemas)',
+        usuario: auditCtx.usuario,
         acao: 'criacao_lancamento_financeiro',
         modulo: 'Financeiro',
         registro: `${created.tipo.toUpperCase()} - ${created.origem}`,
         antes: null,
         depois: `Valor: ${formatCurrency(created.valor)} | Ref: ${created.pedido}`,
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
 
       notifyDataChanged();
@@ -356,7 +358,6 @@ export const FinancePage: React.FC = () => {
         comissao: 0,
         margem: 0,
       });
-      loadFinanceData();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Erro ao salvar lançamento financeiro');
     } finally {
@@ -369,19 +370,18 @@ export const FinancePage: React.FC = () => {
     try {
       await apiService.deleteFinancialEntry(id);
       await apiService.insertAudit({
-        usuario: 'Auditor Financeiro (Sistemas)',
+        usuario: auditCtx.usuario,
         acao: 'exclusao_lancamento_financeiro',
         modulo: 'Financeiro',
         registro: `ID: ${id}`,
         antes: 'Lançamento ativo',
         depois: 'Registro estornado/removido',
-        ip: '189.120.44.12',
-        navegador: navigator.userAgent,
+        ip: auditCtx.ip,
+        navegador: auditCtx.navegador,
       });
       notifyDataChanged();
       toast.success('Lançamento financeiro removido com sucesso!');
       setDeleteConfirmId(null);
-      loadFinanceData();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Erro ao remover lançamento');
     }

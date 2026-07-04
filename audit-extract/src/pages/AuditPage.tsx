@@ -91,7 +91,7 @@ export const AuditPage: React.FC = () => {
     {
       key: 'ip',
       header: 'IP / Origem',
-      render: (e) => <span className="font-mono text-xs text-slate-400">{e.ip ?? '189.120.44.12'}</span>,
+      render: (e) => <span className="font-mono text-xs text-slate-400">{e.ip || 'N/A'}</span>,
     },
   ];
 

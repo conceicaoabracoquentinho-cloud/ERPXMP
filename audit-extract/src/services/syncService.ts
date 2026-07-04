@@ -1,6 +1,12 @@
 import { apiService } from './apiService';
 import { getIntegrationAdapter } from '../integrations/registry';
 import { Connection, GlobalSyncReport, SyncReportItem } from '../types';
+import { supabase } from '../config/supabase';
+// Audit identity is passed through the sync flow from pages
+let _auditUser = 'Sistema';
+let _auditIp: string | null = null;
+let _auditUA = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+export function setSyncAuditContext(user: string, ip: string | null, ua: string) { _auditUser = user; _auditIp = ip; _auditUA = ua; }
 
 export interface SyncProgressUpdate {
   activeConnectionIndex: number;
@@ -33,7 +39,7 @@ export class SyncService {
       await apiService.updateConnection(connection.id, {
         status: result.success ? 'online' : 'erro',
         ultima_sincronizacao: updatedTime,
-        tempo_resposta_ms: Math.floor(Math.random() * 80) + 90,
+        tempo_resposta_ms: durationMs,
       });
 
       // Record in sync history
@@ -52,14 +58,14 @@ export class SyncService {
 
       // Record audit entry
       await apiService.insertAudit({
-        usuario: 'Administrador',
+        usuario: _auditUser,
         acao: 'sincronizacao_individual',
         modulo: 'Integrações',
         registro: connection.nome,
         antes: connection.ultima_sincronizacao,
         depois: `Sincronizado: ${result.registrosRecebidos} recebidos, ${result.registrosAlterados} alterados`,
-        ip: '189.120.44.12',
-        navegador: typeof navigator !== 'undefined' ? navigator.userAgent : 'Server',
+        ip: _auditIp,
+        navegador: _auditUA,
       });
 
       return {
@@ -163,14 +169,14 @@ export class SyncService {
 
     // Record audit entry for global sync
     await apiService.insertAudit({
-      usuario: 'Administrador',
+      usuario: _auditUser,
       acao: 'sincronizar_tudo',
       modulo: 'Integrações',
       registro: 'Global Sync',
       antes: `${total} integrações`,
       depois: `${sucessos} sucessos, ${falhas} falhas em ${totalDuration}ms`,
-      ip: '189.120.44.12',
-      navegador: typeof navigator !== 'undefined' ? navigator.userAgent : 'Server',
+      ip: _auditIp,
+      navegador: _auditUA,
     });
 
     return {
