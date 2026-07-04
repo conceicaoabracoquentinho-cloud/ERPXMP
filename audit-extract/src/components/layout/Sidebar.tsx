@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { NAVIGATION_ITEMS, DEFAULT_COMPANY } from '../../config/constants';
 import { useSync } from '../../contexts/SyncContext';
 import { apiService } from '../../services/apiService';
-import { LayoutDashboard, Plug, GitCompareArrows, Package, ShoppingCart, DollarSign, BellRing, History, Download, Settings, Menu, X, Building2, Video as LucideIcon } from 'lucide-react';
+import { LayoutDashboard, Plug, GitCompareArrows, Package, ShoppingCart, DollarSign, BellRing, History, Download, Settings, Menu, X, Building2 } from 'lucide-react';
+
+type IconType = React.ComponentType<{ className?: string }>;
 
 interface SidebarProps {
   activeModule: string;
@@ -10,7 +12,7 @@ interface SidebarProps {
   alertCount: number;
 }
 
-const ICON_MAP: Record<string, LucideIcon> = {
+const ICON_MAP: Record<string, IconType> = {
   LayoutDashboard,
   Plug,
   GitCompareArrows,

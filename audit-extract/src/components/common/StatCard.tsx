@@ -1,8 +1,10 @@
 import React from 'react';
-import { ArrowUpRight, ArrowDownRight, Minus, Video as LucideIcon } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, Minus } from 'lucide-react';
+
+type IconType = React.ComponentType<{ className?: string }>;
 
 interface StatCardProps {
-  icon: LucideIcon;
+  icon: IconType;
   title: string;
   value: string;
   variation?: number;

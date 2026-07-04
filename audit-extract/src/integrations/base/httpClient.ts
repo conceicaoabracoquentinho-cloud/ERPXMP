@@ -91,6 +91,7 @@ export class IntegrationHttpClient {
         }
 
         return {
+          ok: false,
           data: null,
           status: isAbort ? 408 : 500,
           latencyMs,
@@ -100,6 +101,7 @@ export class IntegrationHttpClient {
     }
 
     return {
+      ok: false,
       data: null,
       status: 500,
       latencyMs: Math.round(performance.now() - startTime),

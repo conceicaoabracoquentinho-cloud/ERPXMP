@@ -41,7 +41,8 @@ export const MercadoLivreAdapter: IntegrationAdapter = {
       };
     }
 
-    const records = Array.isArray(res.data) ? res.data : res.data?.results || res.data?.data || [];
+    const rawData = res.data as Record<string, unknown> | unknown[];
+    const records = Array.isArray(rawData) ? rawData : (rawData as Record<string, unknown>)?.results as unknown[] || (rawData as Record<string, unknown>)?.data as unknown[] || [];
     const count = Array.isArray(records) ? records.length : 0;
     return {
       success: true,

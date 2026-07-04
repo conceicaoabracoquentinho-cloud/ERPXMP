@@ -90,6 +90,7 @@ export const FinancePage: React.FC = () => {
   });
   const [submitting, setSubmitting] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Load All Financial Data
   const loadFinanceData = useCallback(async () => {
@@ -212,11 +213,15 @@ export const FinancePage: React.FC = () => {
 
   // 100% Mathematically Audited Financial Metrics (DRE & KPIs)
   const financialAudit = useMemo(() => {
-    const validOrders = filteredOrders.filter((o) => o.status !== 'cancelado');
+    const validOrders = filteredOrders.filter((o) => o.status !== 'cancelado' && o.status !== 'devolvido');
     const cancelledOrders = filteredOrders.filter((o) => o.status === 'cancelado' || o.status === 'devolvido');
 
-    // 1. Gross Revenue
-    const receitaBruta = validOrders.reduce((sum, o) => sum + Number(o.valor), 0);
+    // 1. Gross Revenue (orders + manual receita entries)
+    const receitaPedidos = validOrders.reduce((sum, o) => sum + Number(o.valor), 0);
+    const receitaLancamentos = filteredEntries
+      .filter((e) => e.tipo === 'receita' && !e.pedido_id)
+      .reduce((sum, e) => sum + Math.abs(Number(e.valor)), 0);
+    const receitaBruta = receitaPedidos + receitaLancamentos;
 
     // 2. Discounts
     const descontosConcedidos = validOrders.reduce((sum, o) => sum + Number(o.desconto || 0), 0);
@@ -367,6 +372,7 @@ export const FinancePage: React.FC = () => {
 
   // Handle Delete Entry
   const handleDeleteEntry = async (id: string) => {
+    setDeleting(true);
     try {
       await apiService.deleteFinancialEntry(id);
       await apiService.insertAudit({
@@ -384,6 +390,8 @@ export const FinancePage: React.FC = () => {
       setDeleteConfirmId(null);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Erro ao remover lançamento');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -1009,7 +1017,7 @@ export const FinancePage: React.FC = () => {
             <Button variant="outline" size="sm" onClick={() => setDeleteConfirmId(null)}>
               Cancelar
             </Button>
-            <Button variant="danger" size="sm" onClick={() => deleteConfirmId && handleDeleteEntry(deleteConfirmId)}>
+            <Button variant="danger" size="sm" onClick={() => deleteConfirmId && handleDeleteEntry(deleteConfirmId)} loading={deleting} disabled={deleting}>
               Confirmar Exclusão
             </Button>
           </div>

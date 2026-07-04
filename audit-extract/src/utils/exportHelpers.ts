@@ -120,7 +120,11 @@ export function mapDataForExport(datasetId: ExportDatasetId, rawData: any[]): Re
  */
 function escapeCSVField(val: any): string {
   if (val == null) return '""';
-  const str = String(val);
+  let str = String(val);
+  // Prevent CSV formula injection: prefix dangerous chars with a single quote
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = `'${str}`;
+  }
   if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
     return `"${str.replace(/"/g, '""')}"`;
   }

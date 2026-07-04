@@ -336,36 +336,45 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({ initialSelectedId }) => 
   const handleBatchStatusChange = async (newStatus: OrderStatus) => {
     if (selectedOrderIds.length === 0) return;
     setBatchActionLoading(true);
-    try {
-      for (const id of selectedOrderIds) {
-        const order = orders.find((o) => o.id === id);
-        if (order) {
-          await apiService.updateOrder(order.id, {
-            status: newStatus,
-            conciliacao: newStatus === 'entregue' ? 'conciliado' : order.conciliacao,
-          });
-          await apiService.insertAudit({
-            usuario: auditCtx.usuario,
-            acao: 'alteracao_status_lote',
-            modulo: 'Pedidos',
-            registro: order.numero,
-            antes: order.status,
-            depois: newStatus,
-            ip: auditCtx.ip,
-            navegador: auditCtx.navegador,
-          });
-        }
+    let sucessos = 0;
+    let falhas = 0;
+    const erros: string[] = [];
+    for (const id of selectedOrderIds) {
+      const order = orders.find((o) => o.id === id);
+      if (!order) continue;
+      try {
+        await apiService.updateOrder(order.id, {
+          status: newStatus,
+          conciliacao: newStatus === 'entregue' ? 'conciliado' : order.conciliacao,
+        });
+        await apiService.insertAudit({
+          usuario: auditCtx.usuario,
+          acao: 'alteracao_status_lote',
+          modulo: 'Pedidos',
+          registro: order.numero,
+          antes: order.status,
+          depois: newStatus,
+          ip: auditCtx.ip,
+          navegador: auditCtx.navegador,
+        });
+        sucessos++;
+      } catch (err) {
+        falhas++;
+        erros.push(`${order.numero}: ${err instanceof Error ? err.message : 'erro'}`);
       }
-      toast.success(
-        `${selectedOrderIds.length} pedido(s) alterado(s) para "${ORDER_STATUS_CONFIG[newStatus]?.label ?? newStatus}"!`
-      );
+    }
+    if (sucessos > 0 && falhas === 0) {
+      toast.success(`${sucessos} pedido(s) alterado(s) para "${ORDER_STATUS_CONFIG[newStatus]?.label ?? newStatus}"!`);
+    } else if (sucessos > 0 && falhas > 0) {
+      toast.warning(`${sucessos} alterados, ${falhas} falharam: ${erros.slice(0, 3).join('; ')}${erros.length > 3 ? '...' : ''}`);
+    } else {
+      toast.error(`Falha ao alterar todos os ${falhas} pedido(s): ${erros.slice(0, 3).join('; ')}`);
+    }
+    if (sucessos > 0) {
       setSelectedOrderIds([]);
       notifyDataChanged();
-    } catch {
-      toast.error('Erro ao processar alteração em lote.');
-    } finally {
-      setBatchActionLoading(false);
     }
+    setBatchActionLoading(false);
   };
 
   // Export to CSV

@@ -1622,8 +1622,7 @@ export const apiService = {
   async testConnection(params: { url: string; fornecedor: string }): Promise<{ ok: boolean; latencyMs: number; message: string }> {
     const start = Date.now();
     try {
-      const result = await IntegrationHttpClient.request({
-        url: params.url,
+      const result = await IntegrationHttpClient.request(params.url, {
         method: 'GET',
         timeoutMs: 10000,
         retries: 0,
